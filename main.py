@@ -3,6 +3,9 @@ import time
 import threading
 import asyncio
 import logging
+import signal
+import sys
+import os
 from datetime import datetime
 from typing import List, Optional, Dict
 
@@ -27,6 +30,8 @@ class BinanceMonitorApp:
     """币安合约监控应用"""
     
     def __init__(self):
+        # 设置信号处理器
+        self._setup_signal_handlers()
         # 验证配置
         Settings.validate()
         
@@ -85,6 +90,21 @@ class BinanceMonitorApp:
         )
         
         self.is_running = False
+        self.restart_requested = False
+        
+    def _setup_signal_handlers(self):
+        """设置信号处理器，支持优雅重启"""
+        def signal_handler(signum, frame):
+            if signum == signal.SIGUSR1:
+                logger.info("🔄 收到重启信号，准备优雅重启...")
+                self.restart_requested = True
+                self.stop()
+            elif signum == signal.SIGTERM:
+                logger.info("⛔ 收到停止信号，准备优雅停止...")
+                self.stop()
+        
+        signal.signal(signal.SIGUSR1, signal_handler)  # 重启信号
+        signal.signal(signal.SIGTERM, signal_handler)  # 停止信号
         
     def _register_account(self, account_name: str, client: BinanceClient, ws_base_url: str, listen_endpoint: str):
         monitor = PositionMonitor()
@@ -332,10 +352,31 @@ class BinanceMonitorApp:
                 except Exception as e:
                     logger.error(f"[{account['name']}] 关闭listenKey失败: {e}")
         try:
-            self.telegram.send_message_sync("⛔ <b>币安合约监控已停止</b>")
+            if self.restart_requested:
+                self.telegram.send_message_sync("🔄 <b>币安合约监控正在重启...</b>")
+            else:
+                self.telegram.send_message_sync("⛔ <b>币安合约监控已停止</b>")
         except Exception as e:
             logger.error(f"发送停止通知失败: {e}")
-        logger.info("⛔ 监控已停止")
+        
+        if self.restart_requested:
+            logger.info("🔄 监控已停止，准备重启...")
+            # 执行重启
+            self._restart_application()
+        else:
+            logger.info("⛔ 监控已停止")
+    
+    def _restart_application(self):
+        """重启应用程序"""
+        try:
+            logger.info("🔄 正在重启应用程序...")
+            # 使用execv替换当前进程
+            python_executable = sys.executable
+            script_path = os.path.abspath(__file__)
+            os.execv(python_executable, [python_executable, script_path])
+        except Exception as e:
+            logger.error(f"重启失败: {e}")
+            sys.exit(1)
 
 
 def main():
