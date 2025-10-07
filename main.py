@@ -146,7 +146,7 @@ class BinanceMonitorApp:
             if order_pnl_data:
                 actual_pnl = order_pnl_data['actual_pnl']
                 close_price = order_pnl_data['close_price']
-                close_notional = order_pnl_data['quantity'] * close_price
+                close_notional = order_pnl_data.get('total_cost', order_pnl_data['quantity'] * close_price)
                 pnl_sign = "+" if actual_pnl >= 0 else ""
                 logger.info(
                     f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 实际盈亏: {pnl_sign}{actual_pnl:.2f} USDT"

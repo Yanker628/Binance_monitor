@@ -290,7 +290,7 @@ class MessageAggregator:
                     aggregated_data['unrealized_pnl'] = actual_pnl
                     aggregated_data['notional'] = close_notional
                     aggregated_data['entry_price'] = close_price
-                    logger.info(f"[聚合] 使用订单更新事件的实际盈亏: {actual_pnl:.2f} USDT")
+                    logger.info(f"[聚合] 使用订单更新事件的实际盈亏: {actual_pnl:.2f} USDT, 平仓前仓位: {close_notional:.2f} USDT")
                 else:
                     entry_price = data.get('old_entry_price', first_prev_entry)
                     previous_amount = data.get('previous_amount', first_prev_amount)

@@ -261,12 +261,34 @@ class PositionMonitor:
                         
                         if not hasattr(self, 'order_pnl_cache'):
                             self.order_pnl_cache = {}
-                        self.order_pnl_cache[key] = {
-                            'actual_pnl': actual_pnl,
-                            'close_price': close_price,
-                            'quantity': quantity,
-                            'entry_price': entry_price
-                        }
+                        
+                        # 累计平仓数据
+                        if key in self.order_pnl_cache:
+                            # 已有数据，累计计算
+                            existing = self.order_pnl_cache[key]
+                            total_quantity = existing['total_quantity'] + quantity
+                            total_cost = existing['total_cost'] + (quantity * close_price)
+                            total_pnl = existing['total_pnl'] + actual_pnl
+                            avg_close_price = total_cost / total_quantity
+                            
+                            self.order_pnl_cache[key] = {
+                                'actual_pnl': total_pnl,
+                                'close_price': avg_close_price,
+                                'quantity': quantity,  # 当前单次成交数量
+                                'total_quantity': total_quantity,  # 累计成交数量
+                                'total_cost': total_cost,  # 累计成交金额
+                                'entry_price': entry_price
+                            }
+                        else:
+                            # 首次平仓
+                            self.order_pnl_cache[key] = {
+                                'actual_pnl': actual_pnl,
+                                'close_price': close_price,
+                                'quantity': quantity,
+                                'total_quantity': quantity,
+                                'total_cost': quantity * close_price,
+                                'entry_price': entry_price
+                            }
             
         except Exception as e:
             logger.error(f"处理订单更新失败: {e}", exc_info=True)
