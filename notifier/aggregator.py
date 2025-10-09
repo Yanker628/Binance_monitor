@@ -80,7 +80,11 @@ class MessageAggregator:
                 'current_data': position_data,
                 'old_position': old_position,
                 'update_count': 1,
-                'last_update_time': datetime.now()
+                'last_update_time': datetime.now(),
+                # 记录初始仓位信息，用于平仓时计算总仓位
+                'initial_amount': position_data.get('previous_amount', 0),
+                'initial_entry': position_data.get('old_entry_price', 0),
+                'initial_pnl': position_data.get('old_unrealized_pnl', 0)
             }
             self._position_buffers[key] = buffer
             logger.info(f"[聚合] 创建新缓冲区: {key}, 类型: {change_type}")
@@ -235,7 +239,12 @@ class MessageAggregator:
             if prev_amt_abs == 0 and curr_amt_abs > 0:
                 actual_change_type = 'OPEN'
             elif prev_amt_abs > 0 and curr_amt_abs == 0:
-                actual_change_type = 'CLOSE'
+                # 只有在真正完全平仓时才标记为CLOSE
+                # 检查是否是从有仓位变为完全空仓
+                if change_type == 'CLOSE' or (first_prev_amount != 0 and current_amount == 0):
+                    actual_change_type = 'CLOSE'
+                else:
+                    actual_change_type = 'REDUCE'
             elif curr_amt_abs > prev_amt_abs:
                 actual_change_type = 'ADD'
             elif curr_amt_abs < prev_amt_abs:
@@ -266,37 +275,52 @@ class MessageAggregator:
                 'update_time': buffer.get('last_update_time', datetime.now())
             }
             
-            # 如果是平仓，使用实际盈亏数据
+            # 对于平仓事件，使用old_position中的实际仓位数据
+            old_position = buffer.get('old_position')
+            if old_position and change_type == 'CLOSE':
+                # 使用old_position中的实际仓位数据
+                first_prev_amount = Decimal(str(old_position.position_amt))
+                first_prev_entry = Decimal(str(old_position.entry_price))
+                first_prev_pnl = Decimal(str(old_position.unrealized_pnl))
+                logger.info(f"[聚合] 平仓事件使用old_position数据: 仓位={first_prev_amount}, 均价={first_prev_entry}")
+            elif change_type == 'CLOSE' and update_count > 1:
+                # 如果有多次更新且是平仓事件，使用current_data中的previous_amount
+                # 这确保我们使用最后一次减仓后的数据
+                first_prev_amount = Decimal(str(data.get('previous_amount', 0)))
+                logger.info(f"[聚合] 平仓事件使用previous_amount数据: 仓位={first_prev_amount}")
+            
+            # 对于平仓事件，需要计算总仓位和总盈亏
             if actual_change_type == 'CLOSE':
-                old_position = buffer.get('old_position')
-                previous_side = data.get('previous_side', 'NONE')
-                aggregated_data['previous_side'] = previous_side
+                # 获取聚合期间的初始仓位信息
+                total_original_amount = Decimal(str(buffer.get('initial_amount', buffer.get('first_prev_amount', 0))))
+                total_original_entry = Decimal(str(buffer.get('initial_entry', buffer.get('first_prev_entry', 0))))
+                total_original_pnl = Decimal(str(buffer.get('initial_pnl', buffer.get('first_prev_unrealized_pnl', 0))))
                 
+                # 计算总盈亏 - 使用订单更新事件的实际盈亏（如果可用）
                 actual_pnl = data.get('actual_pnl')
-                close_price = data.get('close_price', current_entry)
-                close_notional = data.get('close_notional', 0)
-                
                 if actual_pnl is not None:
-                    aggregated_data['unrealized_pnl'] = actual_pnl
-                    aggregated_data['notional'] = close_notional
-                    aggregated_data['entry_price'] = close_price
-                    logger.info(f"[聚合] 使用订单更新事件的实际盈亏: {actual_pnl:.2f} USDT, 平仓前仓位: {close_notional:.2f} USDT")
+                    # 使用订单事件提供的实际盈亏（这是整个交易周期的总盈亏）
+                    total_pnl = Decimal(str(actual_pnl))
+                    logger.info(f"[聚合] 平仓使用订单实际盈亏: {total_pnl:.2f} USDT (总盈亏)")
                 else:
-                    entry_price = data.get('old_entry_price', first_prev_entry)
-                    previous_amount = data.get('previous_amount', first_prev_amount)
-                    
-                    if old_position:
-                        entry_price = old_position.entry_price
-                        previous_amount = old_position.position_amt
-                        close_price = data.get('close_price', old_position.mark_price)
-                    
-                    cumulative_pnl = previous_amount * (close_price - entry_price)
-                    aggregated_data['unrealized_pnl'] = cumulative_pnl
-                    aggregated_data['notional'] = abs(previous_amount * close_price)
-                    aggregated_data['entry_price'] = close_price
-                    logger.info(f"[聚合] 使用计算方式的实际盈亏: {cumulative_pnl:.2f} USDT")
+                    # 如果没有订单实际盈亏，计算总盈亏
+                    close_price = data.get('close_price', current_entry)
+                    total_pnl = total_original_amount * (Decimal(str(close_price)) - total_original_entry)
+                    logger.info(f"[聚合] 平仓计算总盈亏: {total_pnl:.2f} USDT (数量:{total_original_amount}, 开仓:{total_original_entry}, 平仓:{close_price})")
                 
-                aggregated_data['close_price'] = close_price
+                # 更新聚合数据，使用总仓位信息
+                aggregated_data['position_amt'] = total_original_amount
+                aggregated_data['previous_amount'] = total_original_amount
+                aggregated_data['entry_price'] = total_original_entry
+                aggregated_data['old_entry_price'] = total_original_entry
+                aggregated_data['unrealized_pnl'] = total_pnl
+                aggregated_data['notional'] = abs(total_original_amount * total_original_entry)
+                aggregated_data['close_price'] = data.get('close_price', current_entry)
+                aggregated_data['total_original_amount'] = total_original_amount
+                aggregated_data['total_original_entry'] = total_original_entry
+                aggregated_data['total_pnl'] = total_pnl
+                
+                logger.info(f"[聚合] 平仓总仓位: {total_original_amount} 币, 总盈亏: {total_pnl:.2f} USDT")
                 aggregated_data['original_entry_price'] = data.get('old_entry_price', first_prev_entry)
             
             # 导入formatter生成消息文本

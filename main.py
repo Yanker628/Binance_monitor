@@ -150,26 +150,33 @@ class BinanceMonitorApp:
             position_data = _create_position_data(position)
             self.aggregator.add_position_change(position_data, 'OPEN', None)
         
-        def on_close(position):
+        def on_close(position, order_cache=None):
             key = monitor._get_position_key(position.symbol, position.position_side)
-            order_pnl_data = getattr(monitor, 'order_pnl_cache', {}).get(key)
             
-            if order_pnl_data:
-                actual_pnl = order_pnl_data['actual_pnl']
-                close_price = order_pnl_data['close_price']
-                close_notional = order_pnl_data.get('total_cost', order_pnl_data['quantity'] * close_price)
-                pnl_sign = "+" if actual_pnl >= 0 else ""
-                logger.info(
-                    f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 实际盈亏: {pnl_sign}{actual_pnl:.2f} USDT"
-                )
+            # 优先使用传入的订单缓存数据
+            if order_cache:
+                actual_pnl = order_cache['actual_pnl']
+                close_price = order_cache['close_price']
+                close_notional = order_cache.get('total_cost', order_cache['quantity'] * close_price)
+                logger.info(f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 使用传入订单缓存盈亏: {actual_pnl:.2f} USDT")
             else:
-                actual_pnl = position.unrealized_pnl
-                close_price = position.mark_price
-                close_notional = abs(position.position_amt * position.mark_price) if position.position_amt != 0 else 0
-                pnl_sign = "+" if actual_pnl >= 0 else ""
-                logger.info(
-                    f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 盈亏: {pnl_sign}{actual_pnl:.2f} USDT"
-                )
+                # 回退到从monitor获取
+                order_pnl_data = getattr(monitor, 'order_pnl_cache', {}).get(key)
+                if order_pnl_data:
+                    actual_pnl = order_pnl_data['actual_pnl']
+                    close_price = order_pnl_data['close_price']
+                    close_notional = order_pnl_data.get('total_cost', order_pnl_data['quantity'] * close_price)
+                    logger.info(f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 使用monitor缓存盈亏: {actual_pnl:.2f} USDT")
+                else:
+                    actual_pnl = position.unrealized_pnl
+                    close_price = position.mark_price
+                    close_notional = abs(position.position_amt * position.mark_price) if position.position_amt != 0 else 0
+                    logger.info(f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 使用仓位盈亏: {actual_pnl:.2f} USDT")
+            
+            pnl_sign = "+" if actual_pnl >= 0 else ""
+            logger.info(
+                f"[{account_name}] ❌ 平仓 {position.symbol} {position.get_side()} 实际盈亏: {pnl_sign}{actual_pnl:.2f} USDT"
+            )
             
             position_data = {
                 'symbol': position.symbol,

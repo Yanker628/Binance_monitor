@@ -95,7 +95,7 @@ def format_close_position_message(position, old_position=None) -> str:
         f"• 平仓前仓位: {old_notional:.2f} USDT\n"
         f"• 仓位数量: {old_amount:.6f}\n"
         f"• 平仓均价: {avg_price:.4f}\n"
-        f"• 累计盈亏: {pnl:.2f}\n"
+        f"• 实际盈亏: {pnl:.2f} USDT\n"
         f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     

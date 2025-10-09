@@ -177,8 +177,17 @@ class PositionMonitor:
                             self.positions[key] = position
                     else:
                         if old_position and not old_position.is_empty():
-                            if self.on_position_closed:
-                                self.on_position_closed(old_position)
+                            # 检查是否有订单盈亏缓存
+                            if hasattr(self, 'order_pnl_cache') and key in self.order_pnl_cache:
+                                order_cache = self.order_pnl_cache[key]
+                                logger.info(f"💰 [{symbol}] 平仓时使用订单盈亏缓存: {order_cache['actual_pnl']:.4f} USDT")
+                                
+                                # 将订单盈亏数据传递给回调
+                                if self.on_position_closed:
+                                    self.on_position_closed(old_position, order_cache)
+                            else:
+                                if self.on_position_closed:
+                                    self.on_position_closed(old_position)
                         self.positions[key] = position
                         
                 except ValueError as e:
@@ -229,6 +238,8 @@ class PositionMonitor:
                         total_pnl = existing['total_pnl'] + realized_pnl
                         avg_close_price = total_cost / total_quantity if total_quantity > 0 else 0
                         
+                        logger.info(f"💰 [{symbol}] 累计订单盈亏: {total_pnl:.4f} USDT (本次: {realized_pnl:.4f})")
+                        
                         self.order_pnl_cache[key] = {
                             'actual_pnl': total_pnl,
                             'close_price': avg_close_price,
@@ -237,6 +248,7 @@ class PositionMonitor:
                             'total_cost': total_cost,
                         }
                     else:
+                        logger.info(f"💰 [{symbol}] 首次订单盈亏: {realized_pnl:.4f} USDT")
                         self.order_pnl_cache[key] = {
                             'actual_pnl': realized_pnl,
                             'close_price': close_price,
