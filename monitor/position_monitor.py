@@ -4,7 +4,6 @@ from typing import Dict, List, Optional, Callable
 from datetime import datetime
 from utils.data_validator import PositionDataValidator, SafeDataProcessor
 
-# 使用主程序的 logger
 logger = logging.getLogger('binance_monitor')
 
 
@@ -12,7 +11,6 @@ class Position:
     """仓位数据类"""
     
     def __init__(self, data: Dict):
-        """初始化仓位数据，使用安全的数据处理"""
         processor = SafeDataProcessor()
         
         self.symbol = processor.safe_string_conversion(data.get('symbol', ''), 'UNKNOWN', '交易对')
@@ -27,11 +25,9 @@ class Position:
         self.update_time = datetime.now()
     
     def is_empty(self) -> bool:
-        """判断是否为空仓"""
         return abs(self.position_amt) < 0.0001
     
     def get_side(self) -> str:
-        """获取持仓方向"""
         if self.position_amt > 0:
             return 'LONG'
         elif self.position_amt < 0:
@@ -40,13 +36,11 @@ class Position:
             return 'NONE'
     
     def get_pnl_percent(self) -> float:
-        """计算PNL百分比"""
         if self.entry_price > 0:
             return (self.unrealized_pnl / abs(self.notional)) * 100 if self.notional != 0 else 0
         return 0
     
     def to_dict(self) -> Dict:
-        """转换为字典"""
         return {
             'symbol': self.symbol,
             'side': self.get_side(),
@@ -67,41 +61,29 @@ class PositionMonitor:
     
     def __init__(self):
         self.positions: Dict[str, Position] = {}
-        self.leverage_cache: Dict[str, int] = {}  # 缓存杠杆信息
+        self.leverage_cache: Dict[str, int] = {}
         self.on_position_opened: Optional[Callable] = None
         self.on_position_closed: Optional[Callable] = None
         self.on_position_increased: Optional[Callable] = None
         self.on_position_decreased: Optional[Callable] = None
     
     def _calculate_leverage(self, symbol: str, position_amt: float, entry_price: float, unrealized_pnl: float) -> int:
-        """通过盈亏计算杠杆倍数"""
         if abs(position_amt) < 0.0001 or entry_price <= 0:
             return self.leverage_cache.get(symbol, 1)
         
-        # 计算名义价值
         notional = abs(position_amt * entry_price)
         
-        # 通过盈亏反推杠杆：PNL = position_amt * (mark_price - entry_price)
-        # 如果PNL为0，说明mark_price = entry_price，无法计算杠杆
         if abs(unrealized_pnl) < 0.01:
             return self.leverage_cache.get(symbol, 1)
         
-        # 计算当前标记价格
         mark_price = unrealized_pnl / position_amt + entry_price
-        
-        # 计算价格变化百分比
         price_change_pct = abs(mark_price - entry_price) / entry_price
-        
-        # 计算PNL百分比
         pnl_pct = abs(unrealized_pnl) / notional
         
-        # 杠杆 = PNL百分比 / 价格变化百分比
         if price_change_pct > 0:
             calculated_leverage = int(round(pnl_pct / price_change_pct))
-            # 限制在合理范围内
             calculated_leverage = max(1, min(calculated_leverage, 125))
             
-            # 缓存杠杆信息
             self.leverage_cache[symbol] = calculated_leverage
             return calculated_leverage
         
@@ -111,7 +93,6 @@ class PositionMonitor:
         return f"{symbol}_{position_side}"
     
     def _create_position_dict(self, position: Position) -> Dict:
-        """创建仓位数据字典，用于传递给聚合器"""
         return {
             'symbol': position.symbol,
             'position_side': position.position_side,
@@ -125,7 +106,6 @@ class PositionMonitor:
         }
     
     def update_positions(self, positions_data: List[Dict]):
-        """更新所有仓位信息"""
         for pos_data in positions_data:
             position = Position(pos_data)
             key = self._get_position_key(position.symbol, position.position_side)
@@ -150,13 +130,11 @@ class PositionMonitor:
             else:
                 old_position = self.positions.get(key)
                 if old_position and not old_position.is_empty():
-                    # 在平仓时，保存平仓前的完整仓位信息
                     if self.on_position_closed:
                         self.on_position_closed(old_position)
                     self.positions[key] = position
     
     def handle_account_update(self, event_data: Dict):
-        """处理账户更新事件"""
         try:
             logger.info(f"🔄 处理账户更新事件")
             if event_data.get('e') != 'ACCOUNT_UPDATE':
@@ -170,7 +148,6 @@ class PositionMonitor:
             
             for pos_data in positions_data:
                 try:
-                    # 使用安全的数据处理
                     symbol = processor.safe_string_conversion(pos_data.get('s', ''), 'UNKNOWN', '交易对')
                     position_side = processor.safe_string_conversion(pos_data.get('ps', 'BOTH'), 'BOTH', '仓位方向')
                     position_amt = processor.safe_float_conversion(pos_data.get('pa', 0), 0, '仓位数量')
@@ -190,10 +167,8 @@ class PositionMonitor:
                     elif old_position and not old_position.is_empty():
                         mark_price = old_position.mark_price
                     
-                    # 计算杠杆倍数
                     leverage = self._calculate_leverage(symbol, position_amt, entry_price, unrealized_pnl)
                     
-                    # 构建验证后的仓位数据
                     position_data = {
                         'symbol': symbol,
                         'positionSide': position_side,
@@ -205,7 +180,6 @@ class PositionMonitor:
                         'leverage': leverage
                     }
                     
-                    # 验证数据
                     validated_data = PositionDataValidator.validate_position_data(position_data)
                     position = Position(validated_data)
                     
@@ -225,10 +199,8 @@ class PositionMonitor:
                             
                             self.positions[key] = position
                     else:
-                        # 平仓：保存平仓前的完整信息传给回调
                         if old_position and not old_position.is_empty():
                             if self.on_position_closed:
-                                # 关键修复：传递平仓前的旧仓位数据，包含正确的unrealized_pnl
                                 self.on_position_closed(old_position)
                         self.positions[key] = position
                         
@@ -243,7 +215,6 @@ class PositionMonitor:
             logger.error(f"处理账户更新失败: {e}", exc_info=True)
     
     def handle_order_update(self, event_data: Dict):
-        """处理订单更新事件"""
         try:
             logger.info(f"🔄 处理订单更新事件")
             if event_data.get('e') != 'ORDER_TRADE_UPDATE':
@@ -253,7 +224,6 @@ class PositionMonitor:
             order_data = event_data.get('o', {})
             
             try:
-                # 验证订单数据
                 validated_order = PositionDataValidator.validate_order_data(order_data)
                 
                 symbol = validated_order['s']
@@ -267,7 +237,6 @@ class PositionMonitor:
                 
                 logger.debug(f"📦 订单数据 {symbol}: 状态={order_status}, 方向={order_side}, 数量={executed_qty}, 均价={avg_price}")
                 
-                # 只处理已成交的订单
                 if order_status in ['FILLED', 'PARTIALLY_FILLED'] and executed_qty > 0:
                     if order_side == 'SELL' and order_type == 'MARKET':
                         key = self._get_position_key(symbol, 'BOTH')
@@ -285,9 +254,7 @@ class PositionMonitor:
                             if not hasattr(self, 'order_pnl_cache'):
                                 self.order_pnl_cache = {}
                             
-                            # 累计平仓数据
                             if key in self.order_pnl_cache:
-                                # 已有数据，累计计算
                                 existing = self.order_pnl_cache[key]
                                 total_quantity = existing['total_quantity'] + quantity
                                 total_cost = existing['total_cost'] + (quantity * close_price)
@@ -297,13 +264,12 @@ class PositionMonitor:
                                 self.order_pnl_cache[key] = {
                                     'actual_pnl': total_pnl,
                                     'close_price': avg_close_price,
-                                    'quantity': quantity,  # 当前单次成交数量
-                                    'total_quantity': total_quantity,  # 累计成交数量
-                                    'total_cost': total_cost,  # 累计成交金额
+                                    'quantity': quantity,
+                                    'total_quantity': total_quantity,
+                                    'total_cost': total_cost,
                                     'entry_price': entry_price
                                 }
                             else:
-                                # 首次平仓
                                 self.order_pnl_cache[key] = {
                                     'actual_pnl': actual_pnl,
                                     'close_price': close_price,

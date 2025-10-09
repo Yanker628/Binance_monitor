@@ -11,7 +11,6 @@ logger = logging.getLogger('binance_monitor')
 
 
 class ErrorType(Enum):
-    """错误类型枚举"""
     NETWORK_ERROR = "network_error"
     SSL_ERROR = "ssl_error"
     AUTHENTICATION_ERROR = "authentication_error"
@@ -25,7 +24,6 @@ class ErrorType(Enum):
 
 
 class SecurityError(Exception):
-    """安全相关错误"""
     def __init__(self, message: str, error_type: ErrorType = ErrorType.UNKNOWN_ERROR):
         super().__init__(message)
         self.error_type = error_type
@@ -37,40 +35,31 @@ class ErrorHandler:
     
     def __init__(self):
         self.error_counts: Dict[ErrorType, int] = {}
-        self.max_error_count = 10  # 最大错误次数
+        self.max_error_count = 10
         self.error_callbacks: Dict[ErrorType, Callable] = {}
     
     def register_error_callback(self, error_type: ErrorType, callback: Callable):
-        """注册错误回调"""
         self.error_callbacks[error_type] = callback
     
     def handle_error(self, error: Exception, context: str = "", 
                     error_type: Optional[ErrorType] = None) -> bool:
-        """处理错误"""
         try:
-            # 确定错误类型
             if error_type is None:
                 error_type = self._classify_error(error)
             
-            # 记录错误
             self._log_error(error, error_type, context)
-            
-            # 增加错误计数
             self.error_counts[error_type] = self.error_counts.get(error_type, 0) + 1
             
-            # 检查是否超过最大错误次数
             if self.error_counts[error_type] > self.max_error_count:
                 logger.critical(f"❌ {error_type.value} 错误次数过多，可能需要人工干预")
                 return False
             
-            # 执行错误回调
             if error_type in self.error_callbacks:
                 try:
                     self.error_callbacks[error_type](error, context)
                 except Exception as callback_error:
                     logger.error(f"❌ 错误回调执行失败: {callback_error}")
             
-            # 根据错误类型决定是否继续
             return self._should_continue(error_type)
             
         except Exception as e:
@@ -78,7 +67,6 @@ class ErrorHandler:
             return False
     
     def _classify_error(self, error: Exception) -> ErrorType:
-        """分类错误类型"""
         if isinstance(error, requests.exceptions.RequestException):
             if isinstance(error, requests.exceptions.SSLError):
                 return ErrorType.SSL_ERROR
@@ -117,7 +105,6 @@ class ErrorHandler:
             return ErrorType.UNKNOWN_ERROR
     
     def _log_error(self, error: Exception, error_type: ErrorType, context: str):
-        """记录错误日志"""
         error_msg = f"[{error_type.value}] {context}: {str(error)}"
         
         if error_type in [ErrorType.AUTHENTICATION_ERROR, ErrorType.SSL_ERROR]:
@@ -129,32 +116,25 @@ class ErrorHandler:
         else:
             logger.error(error_msg)
         
-        # 记录详细堆栈信息（仅在DEBUG级别）
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"错误堆栈:\n{traceback.format_exc()}")
     
     def _should_continue(self, error_type: ErrorType) -> bool:
-        """判断是否应该继续执行"""
-        # 严重错误不应该继续
         if error_type in [ErrorType.AUTHENTICATION_ERROR, ErrorType.SSL_ERROR]:
             return False
         
-        # 配置错误不应该继续
         if error_type == ErrorType.CONFIGURATION_ERROR:
             return False
         
-        # 其他错误可以继续
         return True
     
     def reset_error_count(self, error_type: Optional[ErrorType] = None):
-        """重置错误计数"""
         if error_type:
             self.error_counts[error_type] = 0
         else:
             self.error_counts.clear()
     
     def get_error_count(self, error_type: ErrorType) -> int:
-        """获取错误计数"""
         return self.error_counts.get(error_type, 0)
 
 
@@ -165,29 +145,24 @@ class SafeRequestHandler:
         self.error_handler = error_handler
     
     def safe_request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        """安全发送HTTP请求"""
         try:
-            # 添加安全头
             headers = kwargs.get('headers', {})
             headers.update({
                 'User-Agent': 'BinanceMonitor/1.0',
                 'Accept': 'application/json',
-                'Connection': 'close'  # 避免连接复用
+                'Connection': 'close'
             })
             kwargs['headers'] = headers
             
-            # 设置超时
             if 'timeout' not in kwargs:
-                kwargs['timeout'] = (5, 30)  # 连接超时5秒，读取超时30秒
+                kwargs['timeout'] = (5, 30)
             
-            # 禁用SSL验证警告
             kwargs['verify'] = True
             
             logger.debug(f"🔒 发送安全请求: {method} {url}")
             
             response = requests.request(method, url, **kwargs)
             
-            # 检查响应状态
             if response.status_code >= 400:
                 error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
                 raise requests.exceptions.HTTPError(error_msg)
@@ -207,13 +182,10 @@ class SafeWebSocketHandler:
         self.error_handler = error_handler
     
     def safe_websocket_connect(self, ws_url: str, **kwargs) -> bool:
-        """安全连接WebSocket"""
         try:
-            # 验证URL
             if not ws_url.startswith(('wss://', 'ws://')):
                 raise SecurityError(f"无效的WebSocket URL: {ws_url}", ErrorType.WEBSOCKET_ERROR)
             
-            # 生产环境必须使用WSS
             if ws_url.startswith('ws://') and 'testnet' not in ws_url:
                 logger.warning(f"⚠️ 生产环境建议使用WSS: {ws_url}")
             
@@ -232,13 +204,11 @@ class SafeDataHandler:
         self.error_handler = error_handler
     
     def safe_json_parse(self, data: str, context: str = "") -> Optional[Dict[str, Any]]:
-        """安全解析JSON数据"""
         try:
             if not data or not isinstance(data, str):
                 raise ValueError("无效的JSON数据")
             
-            # 限制数据大小（防止内存攻击）
-            if len(data) > 1024 * 1024:  # 1MB限制
+            if len(data) > 1024 * 1024:
                 raise ValueError("JSON数据过大")
             
             parsed = json.loads(data)
@@ -256,7 +226,6 @@ class SafeDataHandler:
     def safe_data_extraction(self, data: Dict[str, Any], 
                            required_fields: list, 
                            context: str = "") -> Optional[Dict[str, Any]]:
-        """安全提取数据字段"""
         try:
             if not isinstance(data, dict):
                 raise ValueError("数据不是字典格式")
@@ -277,23 +246,17 @@ class SafeDataHandler:
             return None
 
 
-# 全局错误处理器实例
 global_error_handler = ErrorHandler()
 
-# 注册默认错误回调
 def default_network_error_callback(error: Exception, context: str):
-    """网络错误回调"""
     logger.warning(f"🌐 网络错误，将尝试重连: {context}")
 
 def default_auth_error_callback(error: Exception, context: str):
-    """认证错误回调"""
     logger.critical(f"🔐 认证失败，请检查API密钥: {context}")
 
 def default_rate_limit_callback(error: Exception, context: str):
-    """限流错误回调"""
     logger.warning(f"⏰ API限流，将等待后重试: {context}")
 
-# 注册回调
 global_error_handler.register_error_callback(ErrorType.NETWORK_ERROR, default_network_error_callback)
 global_error_handler.register_error_callback(ErrorType.AUTHENTICATION_ERROR, default_auth_error_callback)
 global_error_handler.register_error_callback(ErrorType.RATE_LIMIT_ERROR, default_rate_limit_callback)

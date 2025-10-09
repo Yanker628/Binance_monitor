@@ -6,8 +6,6 @@ from datetime import datetime
 def format_open_position_message(position) -> str:
     side_text = "做多" if position.get_side() == "LONG" else "做空"
     notional = abs(position.notional)
-    
-    # 浮动盈亏
     pnl = position.unrealized_pnl
     
     message = (
@@ -33,12 +31,8 @@ def format_increase_position_message(new_position, old_position) -> str:
     increase_percent = (increase_amt / old_amt) * 100
     
     notional = abs(new_position.notional)
-    
-    # 均价变化
     old_entry = old_position.entry_price
     new_entry = new_position.entry_price
-    
-    # 浮动盈亏
     pnl = new_position.unrealized_pnl
     
     message = (
@@ -65,8 +59,6 @@ def format_decrease_position_message(new_position, old_position) -> str:
     decrease_percent = (decrease_amt / old_amt) * 100
     
     notional = abs(new_position.notional)
-    
-    # 浮动盈亏
     pnl = new_position.unrealized_pnl
     
     message = (
@@ -86,7 +78,6 @@ def format_decrease_position_message(new_position, old_position) -> str:
 def format_close_position_message(position, old_position=None) -> str:
     side_text = "做多" if position.get_side() == "LONG" else "做空"
     
-    # 如果有old_position，使用平仓前的仓位信息
     if old_position:
         old_notional = abs(old_position.notional)
         old_amount = abs(old_position.position_amt)

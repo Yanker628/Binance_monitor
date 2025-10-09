@@ -22,7 +22,6 @@ from utils.formatter import (
 )
 from utils.logger import setup_logger
 
-# 设置日志（使用配置文件中的日志级别）
 logger = setup_logger('binance_monitor', Settings.get_log_level())
 
 
@@ -30,16 +29,12 @@ class BinanceMonitorApp:
     """币安合约监控应用"""
     
     def __init__(self):
-        # 设置信号处理器
         self._setup_signal_handlers()
-        # 验证配置
         Settings.validate()
         
-        # 初始化账户集合
         self.accounts: List[Dict] = []
         self._multi_account = False
         
-        # 标准合约账户（可选）
         if Settings().BINANCE_FUTURES_ENABLED:
             futures_client = BinanceClient(
                 Settings().BINANCE_API_KEY,
@@ -53,7 +48,6 @@ class BinanceMonitorApp:
                 listen_endpoint='/v1/listenKey'
             )
         
-        # 统一账户（可选）
         if Settings().BINANCE_UNIFIED_ENABLED:
             unified_client = BinanceClient(
                 Settings().BINANCE_UNIFIED_API_KEY,
@@ -69,7 +63,6 @@ class BinanceMonitorApp:
         
         self._multi_account = len(self.accounts) > 1
         
-        # 初始化 Telegram Bot
         settings_instance = Settings()
         bot_configs = [
             (settings_instance.TELEGRAM_BOT_TOKEN, settings_instance.TELEGRAM_CHAT_ID, settings_instance.TELEGRAM_TOPIC_ID),
@@ -80,15 +73,13 @@ class BinanceMonitorApp:
         
         self.telegram = MultiBotManager(bot_configs)
         
-        # 创建后台事件循环（用于聚合器）
         self.event_loop = None
         self.loop_thread = None
         
-        # 初始化消息聚合器（使用配置的聚合窗口）
         self.aggregator = MessageAggregator(
             send_callback=self.telegram.send_message_sync,
             window_ms=settings_instance.MESSAGE_AGGREGATION_WINDOW_MS,
-            event_loop=None  # 稍后设置
+            event_loop=None
         )
         
         self.is_running = False
@@ -105,8 +96,8 @@ class BinanceMonitorApp:
                 logger.info("⛔ 收到停止信号，准备优雅停止...")
                 self.stop()
         
-        signal.signal(signal.SIGUSR1, signal_handler)  # 重启信号
-        signal.signal(signal.SIGTERM, signal_handler)  # 停止信号
+        signal.signal(signal.SIGUSR1, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
         
     def _register_account(self, account_name: str, client: BinanceClient, ws_base_url: str, listen_endpoint: str):
         monitor = PositionMonitor()
@@ -128,13 +119,11 @@ class BinanceMonitorApp:
         """为指定账户监控器绑定事件回调"""
         
         def send_with_account_prefix(message: str):
-            """添加账户前缀（仅多账户模式）"""
             if self._multi_account:
                 message = f"👤 <b>{account_name}</b>\n\n" + message
             self.telegram.send_message_sync(message)
         
         def _create_position_data(position, old_position=None):
-            """创建仓位数据字典供聚合器使用"""
             data = {
                 'symbol': position.symbol,
                 'position_side': position.position_side,
@@ -232,7 +221,6 @@ class BinanceMonitorApp:
         monitor.on_position_decreased = on_decrease
     
     def _init_positions(self):
-        """初始化仓位信息"""
         pass
     
     def _start_user_data_streams(self):
@@ -278,11 +266,9 @@ class BinanceMonitorApp:
         account['keepalive_thread'] = thread
     
     def _start_telegram_bot(self):
-        """初始化Telegram Bot"""
         pass
     
     def _start_event_loop(self):
-        """在后台线程中启动事件循环"""
         def run_loop():
             self.event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.event_loop)
@@ -291,10 +277,9 @@ class BinanceMonitorApp:
         
         self.loop_thread = threading.Thread(target=run_loop, daemon=True)
         self.loop_thread.start()
-        time.sleep(0.1)  # 等待事件循环启动
+        time.sleep(0.1)
     
     def _stop_event_loop(self):
-        """停止后台事件循环"""
         if self.event_loop:
             self.event_loop.call_soon_threadsafe(self.event_loop.stop)
             logger.info("⛔ 后台事件循环已停止")
@@ -308,10 +293,7 @@ class BinanceMonitorApp:
             )
             self.is_running = True
             
-            # 启动后台事件循环（用于聚合器）
             self._start_event_loop()
-            
-            # 将事件循环设置到聚合器中
             self.aggregator.event_loop = self.event_loop
             
             self._init_positions()
@@ -339,8 +321,6 @@ class BinanceMonitorApp:
     def stop(self):
         """停止监控"""
         self.is_running = False
-        
-        # 停止后台事件循环
         self._stop_event_loop()
         
         for account in self.accounts:
@@ -373,10 +353,8 @@ class BinanceMonitorApp:
             logger.info("⛔ 监控已停止")
     
     def _restart_application(self):
-        """重启应用程序"""
         try:
             logger.info("🔄 正在重启应用程序...")
-            # 使用execv替换当前进程
             python_executable = sys.executable
             script_path = os.path.abspath(__file__)
             os.execv(python_executable, [python_executable, script_path])
@@ -386,7 +364,6 @@ class BinanceMonitorApp:
 
 
 def main():
-    """主函数"""
     try:
         app = BinanceMonitorApp()
         app.start()

@@ -8,7 +8,6 @@ from typing import Callable, Optional, Dict, Any, Set
 from websocket import WebSocketApp
 import certifi
 
-# 使用主程序的 logger
 logger = logging.getLogger('binance_monitor')
 
 
@@ -26,49 +25,36 @@ class BinanceWebSocket:
         self.ping_thread: Optional[threading.Thread] = None
         self.ws_thread: Optional[threading.Thread] = None
         
-        # 安全配置
         self.ssl_context = self._create_secure_ssl_context()
         
-        # 连接频率限制
         self._last_connect_time = 0
-        self._min_connect_interval = 5  # 最小连接间隔5秒
+        self._min_connect_interval = 5
         
-        # 消息频率限制
         self._message_times = []
-        self._max_messages_per_minute = 1000  # 每分钟最大消息数
+        self._max_messages_per_minute = 1000
         
-        # 已知但可忽略的事件类型（不需要处理，也不需要警告）
         self.ignored_events: Set[str] = {
-            'TRADE_LITE',      # 交易简报（轻量级）
-            'listenKeyExpired', # listenKey过期提醒
+            'TRADE_LITE',
+            'listenKeyExpired',
         }
         
-        # 已警告过的未知事件类型（避免重复警告）
         self._warned_events: Set[str] = set()
-        
-        # 连接状态标志
-        self._intentional_close = False  # 是否是主动关闭
+        self._intentional_close = False
         
         logger.info(f"🔒 WebSocket客户端已初始化，SSL验证已启用")
     
     def _create_secure_ssl_context(self) -> ssl.SSLContext:
-        """创建安全的SSL上下文"""
         try:
-            # 创建SSL上下文
             context = ssl.create_default_context()
             
-            # 启用证书验证
             context.check_hostname = True
             context.verify_mode = ssl.CERT_REQUIRED
             
-            # 使用certifi提供的CA证书包
             context.load_verify_locations(certifi.where())
             
-            # 设置安全协议
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.maximum_version = ssl.TLSVersion.TLSv1_3
             
-            # 禁用不安全的密码套件
             context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS')
             
             logger.info("✅ SSL上下文创建成功，已启用证书验证")
@@ -76,28 +62,23 @@ class BinanceWebSocket:
             
         except Exception as e:
             logger.error(f"❌ SSL上下文创建失败: {e}")
-            # 如果SSL配置失败，创建一个基本的上下文
             context = ssl.create_default_context()
             context.check_hostname = True
             context.verify_mode = ssl.CERT_REQUIRED
             return context
     
     def _validate_websocket_url(self, url: str) -> bool:
-        """验证WebSocket URL的安全性"""
         if not url:
             logger.error("❌ WebSocket URL为空")
             return False
         
-        # 检查协议
         if not url.startswith(('wss://', 'ws://')):
             logger.error(f"❌ 无效的WebSocket协议: {url}")
             return False
         
-        # 生产环境必须使用WSS
         if url.startswith('ws://') and 'testnet' not in url:
             logger.warning(f"⚠️ 生产环境建议使用WSS协议: {url}")
         
-        # 检查域名
         if 'binance' not in url.lower():
             logger.warning(f"⚠️ 非币安官方域名: {url}")
         
@@ -105,10 +86,8 @@ class BinanceWebSocket:
         return True
         
     def _check_message_frequency(self) -> bool:
-        """检查消息频率是否过高"""
         now = time.time()
         
-        # 清理1分钟前的记录
         self._message_times = [t for t in self._message_times if now - t < 60]
         
         if len(self._message_times) >= self._max_messages_per_minute:
@@ -119,8 +98,7 @@ class BinanceWebSocket:
         return True
     
     def _validate_message_size(self, message: str) -> bool:
-        """验证消息大小"""
-        max_size = 1024 * 1024  # 1MB限制
+        max_size = 1024 * 1024
         if len(message) > max_size:
             logger.warning(f"⚠️ WebSocket消息过大: {len(message)} 字节，限制: {max_size} 字节")
             return False

@@ -3,7 +3,6 @@ import logging
 import requests
 from typing import Optional
 
-# 使用主程序的 logger
 logger = logging.getLogger('binance_monitor')
 
 
@@ -17,18 +16,15 @@ class TelegramBot:
         logger.info(f"📱 Telegram Bot 已初始化，Chat ID: {chat_id}" + (f", Topic ID: {topic_id}" if topic_id else ""))
     
     def send_message_sync(self, message: str, parse_mode: str = 'HTML'):
-        """同步发送消息到 Telegram"""
         try:
             logger.debug(f"[Telegram] 准备发送消息，长度: {len(message)} 字符")
             
-            # 构建请求数据
             data = {
                 'chat_id': self.chat_id,
                 'text': message,
                 'parse_mode': parse_mode
             }
             
-            # 如果设置了 topic_id，添加到请求中
             if self.topic_id:
                 data['message_thread_id'] = self.topic_id
             
