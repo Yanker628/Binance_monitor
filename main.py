@@ -40,42 +40,43 @@ class BinanceMonitorApp:
         self._multi_account = False
         
         # 标准合约账户（可选）
-        if Settings.BINANCE_FUTURES_ENABLED:
+        if Settings().BINANCE_FUTURES_ENABLED:
             futures_client = BinanceClient(
-                Settings.BINANCE_API_KEY,
-                Settings.BINANCE_API_SECRET,
-                Settings.BINANCE_API_URL
+                Settings().BINANCE_API_KEY,
+                Settings().BINANCE_API_SECRET,
+                Settings().BINANCE_API_URL
             )
             self._register_account(
                 account_name="合约账户",
                 client=futures_client,
-                ws_base_url=Settings.BINANCE_WS_URL,
+                ws_base_url=Settings().BINANCE_WS_URL,
                 listen_endpoint='/v1/listenKey'
             )
         
         # 统一账户（可选）
-        if Settings.BINANCE_UNIFIED_ENABLED:
+        if Settings().BINANCE_UNIFIED_ENABLED:
             unified_client = BinanceClient(
-                Settings.BINANCE_UNIFIED_API_KEY,
-                Settings.BINANCE_UNIFIED_API_SECRET,
-                Settings.BINANCE_UNIFIED_API_URL
+                Settings().BINANCE_UNIFIED_API_KEY,
+                Settings().BINANCE_UNIFIED_API_SECRET,
+                Settings().BINANCE_UNIFIED_API_URL
             )
             self._register_account(
                 account_name="统一账户",
                 client=unified_client,
-                ws_base_url=Settings.BINANCE_UNIFIED_WS_URL,
-                listen_endpoint=Settings.BINANCE_UNIFIED_LISTEN_KEY_ENDPOINT
+                ws_base_url=Settings().BINANCE_UNIFIED_WS_URL,
+                listen_endpoint=Settings().BINANCE_UNIFIED_LISTEN_KEY_ENDPOINT
             )
         
         self._multi_account = len(self.accounts) > 1
         
         # 初始化 Telegram Bot
+        settings_instance = Settings()
         bot_configs = [
-            (Settings.TELEGRAM_BOT_TOKEN, Settings.TELEGRAM_CHAT_ID, Settings.TELEGRAM_TOPIC_ID),
+            (settings_instance.TELEGRAM_BOT_TOKEN, settings_instance.TELEGRAM_CHAT_ID, settings_instance.TELEGRAM_TOPIC_ID),
         ]
         
-        if Settings.TELEGRAM_BOT_TOKEN_2 and Settings.TELEGRAM_CHAT_ID_2:
-            bot_configs.append((Settings.TELEGRAM_BOT_TOKEN_2, Settings.TELEGRAM_CHAT_ID_2, Settings.TELEGRAM_TOPIC_ID_2))
+        if settings_instance.TELEGRAM_BOT_TOKEN_2 and settings_instance.TELEGRAM_CHAT_ID_2:
+            bot_configs.append((settings_instance.TELEGRAM_BOT_TOKEN_2, settings_instance.TELEGRAM_CHAT_ID_2, settings_instance.TELEGRAM_TOPIC_ID_2))
         
         self.telegram = MultiBotManager(bot_configs)
         
@@ -86,7 +87,8 @@ class BinanceMonitorApp:
         # 初始化消息聚合器（使用配置的聚合窗口）
         self.aggregator = MessageAggregator(
             send_callback=self.telegram.send_message_sync,
-            window_ms=Settings.MESSAGE_AGGREGATION_WINDOW_MS
+            window_ms=settings_instance.MESSAGE_AGGREGATION_WINDOW_MS,
+            event_loop=None  # 稍后设置
         )
         
         self.is_running = False
@@ -260,7 +262,7 @@ class BinanceMonitorApp:
         def keepalive():
             client: BinanceClient = account['client']
             listen_endpoint: str = account['listen_endpoint']
-            keepalive_interval = Settings.LISTEN_KEY_KEEPALIVE_INTERVAL
+            keepalive_interval = Settings().LISTEN_KEY_KEEPALIVE_INTERVAL
             logger.info(f"[{account['name']}] listenKey保活间隔: {keepalive_interval}秒 ({keepalive_interval/60:.1f}分钟)")
             while self.is_running:
                 time.sleep(keepalive_interval)
@@ -302,7 +304,7 @@ class BinanceMonitorApp:
         try:
             enabled_accounts = [acc['name'] for acc in self.accounts]
             logger.info(
-                f"🚀 币安合约监控启动 (测试网: {Settings.BINANCE_TESTNET}) | 账户: {', '.join(enabled_accounts)}"
+                f"🚀 币安合约监控启动 (测试网: {Settings().BINANCE_TESTNET}) | 账户: {', '.join(enabled_accounts)}"
             )
             self.is_running = True
             
@@ -348,9 +350,13 @@ class BinanceMonitorApp:
             listen_key = account.get('listen_key')
             if listen_key:
                 try:
-                    account['client'].close_user_data_stream(listen_key, account['listen_endpoint'])
+                    result = account['client'].close_user_data_stream(listen_key, account['listen_endpoint'])
+                    if result.get('msg') == 'listenKey already expired':
+                        logger.debug(f"[{account['name']}] listenKey已过期，无需删除")
+                    else:
+                        logger.info(f"[{account['name']}] ✅ listenKey已成功删除")
                 except Exception as e:
-                    logger.error(f"[{account['name']}] 关闭listenKey失败: {e}")
+                    logger.warning(f"[{account['name']}] ⚠️ 关闭listenKey时出现异常: {e}")
         try:
             if self.restart_requested:
                 self.telegram.send_message_sync("🔄 <b>币安合约监控正在重启...</b>")

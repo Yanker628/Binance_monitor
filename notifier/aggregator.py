@@ -43,6 +43,9 @@ class MessageAggregator:
         # 上次发送的状态签名，用于防止重复推送
         self._last_sent_state: Dict[str, tuple] = {}
         
+        # 状态签名清理计数器（每1000次操作清理一次）
+        self._state_cleanup_counter = 0
+        
         logger.info(f"消息聚合器已初始化，聚合窗口: {window_ms}ms")
     
     def add_position_change(self, position_data: Dict[str, Any], change_type: str, 
@@ -173,6 +176,12 @@ class MessageAggregator:
                         logger.info(f"[聚合] 检测到重复消息，跳过: {key}")
                         continue
                     self._last_sent_state[key] = signature
+                    
+                    # 定期清理状态签名字典，防止内存泄漏
+                    self._state_cleanup_counter += 1
+                    if self._state_cleanup_counter >= 1000:  # 每1000次操作清理一次
+                        self._cleanup_state_signatures()
+                        self._state_cleanup_counter = 0
                 
                 messages.append(aggregated)
             
@@ -211,6 +220,20 @@ class MessageAggregator:
             str(buffer.get('first_prev_entry', 0)),
         )
     
+    def _cleanup_state_signatures(self):
+        """清理状态签名字典，防止内存泄漏"""
+        try:
+            # 保留最近100个状态签名，清理旧的
+            if len(self._last_sent_state) > 100:
+                # 转换为列表，按添加顺序排序（Python 3.7+ 字典保持插入顺序）
+                items = list(self._last_sent_state.items())
+                # 保留最后100个
+                recent_items = items[-100:]
+                self._last_sent_state = dict(recent_items)
+                logger.info(f"[聚合] 清理状态签名，保留最近100个，清理前: {len(items)}, 清理后: {len(self._last_sent_state)}")
+        except Exception as e:
+            logger.error(f"[聚合] 清理状态签名时出错: {e}")
+    
     def _build_aggregated_message(self, buffer: Dict[str, Any]) -> Optional[str]:
         """
         构建聚合后的消息
@@ -232,12 +255,26 @@ class MessageAggregator:
             current_entry = Decimal(str(data.get('entry_price', 0)))
             current_pnl = Decimal(str(data.get('unrealized_pnl', 0)))
             
+            # 对于平仓事件，使用old_position中的实际仓位数据
+            old_position = buffer.get('old_position')
+            if old_position and change_type == 'CLOSE':
+                # 使用old_position中的实际仓位数据
+                first_prev_amount = Decimal(str(old_position.position_amt))
+                first_prev_entry = Decimal(str(old_position.entry_price))
+                first_prev_pnl = Decimal(str(old_position.unrealized_pnl))
+                logger.info(f"[聚合] 平仓事件使用old_position数据: 仓位={first_prev_amount}, 均价={first_prev_entry}")
+            elif change_type == 'CLOSE' and update_count > 1:
+                # 如果有多次更新且是平仓事件，使用current_data中的previous_amount
+                # 这确保我们使用最后一次减仓后的数据
+                first_prev_amount = Decimal(str(data.get('previous_amount', 0)))
+                logger.info(f"[聚合] 平仓事件使用previous_amount数据: 仓位={first_prev_amount}")
+            
             # 计算实际变化
             prev_amt_abs = abs(first_prev_amount)
             curr_amt_abs = abs(current_amount)
             
-            # 如果前后数量相同，跳过
-            if prev_amt_abs == curr_amt_abs:
+            # 如果前后数量相同，跳过（但平仓事件除外）
+            if prev_amt_abs == curr_amt_abs and change_type != 'CLOSE':
                 logger.info(f"[聚合] 仓位数量未变化，跳过: {symbol}")
                 return None
             
@@ -349,7 +386,8 @@ class MessageAggregator:
             if actual_change_type == 'OPEN':
                 message = format_open_position_message(position)
             elif actual_change_type == 'CLOSE':
-                message = format_close_position_message(position)
+                old_pos = buffer.get('old_position')
+                message = format_close_position_message(position, old_pos)
             elif actual_change_type == 'ADD':
                 old_pos = TempPosition({
                     **aggregated_data,

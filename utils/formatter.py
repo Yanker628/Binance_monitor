@@ -83,10 +83,17 @@ def format_decrease_position_message(new_position, old_position) -> str:
     return message
 
 
-def format_close_position_message(position) -> str:
+def format_close_position_message(position, old_position=None) -> str:
     side_text = "做多" if position.get_side() == "LONG" else "做空"
     
-    notional = abs(position.notional)
+    # 如果有old_position，使用平仓前的仓位信息
+    if old_position:
+        old_notional = abs(old_position.notional)
+        old_amount = abs(old_position.position_amt)
+    else:
+        old_notional = abs(position.notional)
+        old_amount = 0.0
+    
     pnl = position.unrealized_pnl
     avg_price = position.entry_price
     
@@ -94,8 +101,8 @@ def format_close_position_message(position) -> str:
         f"✅ 平仓完成\n"
         f"• 币种: {position.symbol}\n"
         f"• 方向: {side_text}\n"
-        f"• 平仓前仓位: {notional:.2f} USDT\n"
-        f"• 仓位数量: 0.000000\n"
+        f"• 平仓前仓位: {old_notional:.2f} USDT\n"
+        f"• 仓位数量: {old_amount:.6f}\n"
         f"• 平仓均价: {avg_price:.4f}\n"
         f"• 累计盈亏: {pnl:.2f}\n"
         f"• 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"

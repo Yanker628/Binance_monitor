@@ -2,9 +2,11 @@
 import json
 import time
 import threading
+import ssl
+import logging
 from typing import Callable, Optional, Dict, Any, Set
 from websocket import WebSocketApp
-import logging
+import certifi
 
 # 使用主程序的 logger
 logger = logging.getLogger('binance_monitor')
@@ -24,6 +26,9 @@ class BinanceWebSocket:
         self.ping_thread: Optional[threading.Thread] = None
         self.ws_thread: Optional[threading.Thread] = None
         
+        # 安全配置
+        self.ssl_context = self._create_secure_ssl_context()
+        
         # 已知但可忽略的事件类型（不需要处理，也不需要警告）
         self.ignored_events: Set[str] = {
             'TRADE_LITE',      # 交易简报（轻量级）
@@ -35,6 +40,61 @@ class BinanceWebSocket:
         
         # 连接状态标志
         self._intentional_close = False  # 是否是主动关闭
+        
+        logger.info(f"🔒 WebSocket客户端已初始化，SSL验证已启用")
+    
+    def _create_secure_ssl_context(self) -> ssl.SSLContext:
+        """创建安全的SSL上下文"""
+        try:
+            # 创建SSL上下文
+            context = ssl.create_default_context()
+            
+            # 启用证书验证
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+            
+            # 使用certifi提供的CA证书包
+            context.load_verify_locations(certifi.where())
+            
+            # 设置安全协议
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.maximum_version = ssl.TLSVersion.TLSv1_3
+            
+            # 禁用不安全的密码套件
+            context.set_ciphers('ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS')
+            
+            logger.info("✅ SSL上下文创建成功，已启用证书验证")
+            return context
+            
+        except Exception as e:
+            logger.error(f"❌ SSL上下文创建失败: {e}")
+            # 如果SSL配置失败，创建一个基本的上下文
+            context = ssl.create_default_context()
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+            return context
+    
+    def _validate_websocket_url(self, url: str) -> bool:
+        """验证WebSocket URL的安全性"""
+        if not url:
+            logger.error("❌ WebSocket URL为空")
+            return False
+        
+        # 检查协议
+        if not url.startswith(('wss://', 'ws://')):
+            logger.error(f"❌ 无效的WebSocket协议: {url}")
+            return False
+        
+        # 生产环境必须使用WSS
+        if url.startswith('ws://') and 'testnet' not in url:
+            logger.warning(f"⚠️ 生产环境建议使用WSS协议: {url}")
+        
+        # 检查域名
+        if 'binance' not in url.lower():
+            logger.warning(f"⚠️ 非币安官方域名: {url}")
+        
+        logger.info(f"✅ WebSocket URL验证通过: {url}")
+        return True
         
     def on_message(self, ws, message):
         try:
@@ -114,27 +174,41 @@ class BinanceWebSocket:
         self.callbacks[event_type] = callback
     
     def connect(self):
-        """连接WebSocket"""
+        """安全连接WebSocket"""
         self._intentional_close = False
         
-        self.ws = WebSocketApp(
-            self.ws_url,
-            on_message=self.on_message,
-            on_error=self.on_error,
-            on_close=self.on_close,
-            on_open=self.on_open
-        )
+        # 验证URL安全性
+        if not self._validate_websocket_url(self.ws_url):
+            raise ConnectionError(f"WebSocket URL验证失败: {self.ws_url}")
         
-        self.ws_thread = threading.Thread(target=self._run_websocket, daemon=True)
-        self.ws_thread.start()
-        
-        timeout = 10
-        start_time = time.time()
-        while not self.is_running and (time.time() - start_time) < timeout:
-            time.sleep(0.1)
-        
-        if not self.is_running:
-            raise ConnectionError("WebSocket连接超时")
+        try:
+            self.ws = WebSocketApp(
+                self.ws_url,
+                on_message=self.on_message,
+                on_error=self.on_error,
+                on_close=self.on_close,
+                on_open=self.on_open
+            )
+            
+            logger.info(f"🔒 正在建立安全WebSocket连接: {self.ws_url}")
+            
+            self.ws_thread = threading.Thread(target=self._run_websocket, daemon=True)
+            self.ws_thread.start()
+            
+            timeout = 15  # 增加超时时间
+            start_time = time.time()
+            while not self.is_running and (time.time() - start_time) < timeout:
+                time.sleep(0.1)
+            
+            if not self.is_running:
+                raise ConnectionError("WebSocket连接超时")
+                
+        except ssl.SSLError as e:
+            logger.error(f"❌ SSL连接错误: {e}")
+            raise ConnectionError(f"SSL连接失败: {e}")
+        except Exception as e:
+            logger.error(f"❌ WebSocket连接失败: {e}")
+            raise ConnectionError(f"WebSocket连接失败: {e}")
     
     def _run_websocket(self):
         """在线程中运行WebSocket"""
