@@ -278,9 +278,19 @@ class PositionDataValidator:
         if position_amt is None:
             raise ValueError("无效的仓位数量")
         
-        entry_price = validator.validate_price(data.get('entryPrice', 0), '开仓价格')
-        if entry_price is None:
-            raise ValueError("无效的开仓价格")
+        # 对于平仓情况，entryPrice可能为0，这是正常的
+        position_amt = abs(position_amt) if position_amt is not None else 0
+        if position_amt > 0.0001:
+            # 有仓位时，entryPrice不能为0
+            entry_price = validator.validate_price(data.get('entryPrice', 0), '开仓价格')
+            if entry_price is None:
+                raise ValueError("无效的开仓价格")
+        else:
+            # 平仓时，entryPrice可以为0
+            entry_price = validator.validate_numeric_value(
+                data.get('entryPrice', 0), '开仓价格',
+                min_val=0.0, max_val=1000000.0, allow_zero=True
+            ) or 0.0
         
         unrealized_pnl = validator.validate_pnl(data.get('unRealizedProfit', 0), '浮动盈亏')
         if unrealized_pnl is None:
