@@ -226,24 +226,28 @@ class BinanceMonitorApp:
     def _start_user_data_streams(self):
         """启动所有账户的用户数据流"""
         for account in self.accounts:
-            client: BinanceClient = account['client']
-            listen_endpoint: str = account['listen_endpoint']
-            
-            logger.info(f"🔑 [{account['name']}] 获取 listenKey: {listen_endpoint}")
-            listen_key = client.start_user_data_stream(listen_endpoint)
-            account['listen_key'] = listen_key
-            logger.info(f"✅ [{account['name']}] listenKey: {listen_key[:20]}...")
-            
-            ws = UserDataStreamWebSocket(listen_key, account['ws_base_url'])
-            monitor: PositionMonitor = account['monitor']
-            ws.register_callback('ACCOUNT_UPDATE', monitor.handle_account_update)
-            ws.register_callback('ORDER_TRADE_UPDATE', monitor.handle_order_update)
-            logger.info(f"📡 [{account['name']}] 注册回调: ACCOUNT_UPDATE, ORDER_TRADE_UPDATE")
-            ws.connect()
-            account['ws'] = ws
-            logger.info(f"✅ [{account['name']}] WebSocket 连接成功")
-            
-            self._start_keepalive_thread(account)
+            try:
+                client: BinanceClient = account['client']
+                listen_endpoint: str = account['listen_endpoint']
+                
+                logger.info(f"🔑 [{account['name']}] 获取 listenKey: {listen_endpoint}")
+                listen_key = client.start_user_data_stream(listen_endpoint)
+                account['listen_key'] = listen_key
+                logger.info(f"✅ [{account['name']}] listenKey: {listen_key[:20]}...")
+                
+                ws = UserDataStreamWebSocket(listen_key, account['ws_base_url'])
+                monitor: PositionMonitor = account['monitor']
+                ws.register_callback('ACCOUNT_UPDATE', monitor.handle_account_update)
+                ws.register_callback('ORDER_TRADE_UPDATE', monitor.handle_order_update)
+                logger.info(f"📡 [{account['name']}] 注册回调: ACCOUNT_UPDATE, ORDER_TRADE_UPDATE")
+                ws.connect()
+                account['ws'] = ws
+                logger.info(f"✅ [{account['name']}] WebSocket 连接成功")
+                
+                self._start_keepalive_thread(account)
+            except Exception as e:
+                logger.error(f"❌ [{account['name']}] 账户启动失败: {e}", exc_info=True)
+                self.telegram.send_message_sync(f"⚠️ <b>账户启动失败</b>\n\n账户: {account['name']}\n错误: {e}")
     
     def _start_keepalive_thread(self, account: Dict):
         """为指定账户启动listenKey保活线程"""
@@ -346,9 +350,12 @@ class BinanceMonitorApp:
             logger.error(f"发送停止通知失败: {e}")
         
         if self.restart_requested:
-            logger.info("🔄 监控已停止，准备重启...")
-            # 执行重启
-            self._restart_application()
+            # 检查是否由 supervisor 管理
+            if 'SUPERVISOR_PROCESS_NAME' in os.environ:
+                logger.info("🔄 监控已停止，等待 supervisor 重启...")
+            else:
+                logger.info("🔄 监控已停止，执行手动重启...")
+                self._restart_application()
         else:
             logger.info("⛔ 监控已停止")
     
