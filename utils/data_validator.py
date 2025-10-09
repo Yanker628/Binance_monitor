@@ -355,11 +355,19 @@ class PositionDataValidator:
         order_type = processor.safe_string_conversion(data.get('o', ''), 'UNKNOWN', '订单类型')
         if not validator.validate_order_type(order_type):
             raise ValueError(f"无效的订单类型: {order_type}")
+
+        position_side = processor.safe_string_conversion(data.get('ps', 'BOTH'), 'BOTH', '仓位方向')
+        if not validator.validate_position_side(position_side):
+            raise ValueError(f"无效的仓位方向: {position_side}")
         
         executed_qty = validator.validate_quantity(data.get('z', 0), '成交数量')
         if executed_qty is None:
             raise ValueError("无效的成交数量")
         
+        realized_pnl = validator.validate_pnl(data.get('rp', 0), '实现盈亏')
+        if realized_pnl is None:
+            raise ValueError("无效的实现盈亏")
+
         # 根据订单状态决定是否允许平均价格为0
         # NEW, CANCELED, REJECTED, EXPIRED 状态的订单平均价格可以为0
         allow_zero_price = order_status in ['NEW', 'CANCELED', 'REJECTED', 'EXPIRED']
@@ -380,8 +388,10 @@ class PositionDataValidator:
             'X': order_status,
             'S': order_side,
             'o': order_type,
+            'ps': position_side,
             'z': executed_qty,
             'ap': avg_price,
+            'rp': realized_pnl,
             'Z': processor.safe_float_conversion(data.get('Z', 0), 0, '累计成交金额'),
             'n': processor.safe_float_conversion(data.get('n', 0), 0, '手续费')
         }

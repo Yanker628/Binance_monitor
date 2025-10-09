@@ -67,28 +67,6 @@ class PositionMonitor:
         self.on_position_increased: Optional[Callable] = None
         self.on_position_decreased: Optional[Callable] = None
     
-    def _calculate_leverage(self, symbol: str, position_amt: float, entry_price: float, unrealized_pnl: float) -> int:
-        if abs(position_amt) < 0.0001 or entry_price <= 0:
-            return self.leverage_cache.get(symbol, 1)
-        
-        notional = abs(position_amt * entry_price)
-        
-        if abs(unrealized_pnl) < 0.01:
-            return self.leverage_cache.get(symbol, 1)
-        
-        mark_price = unrealized_pnl / position_amt + entry_price
-        price_change_pct = abs(mark_price - entry_price) / entry_price
-        pnl_pct = abs(unrealized_pnl) / notional
-        
-        if price_change_pct > 0:
-            calculated_leverage = int(round(pnl_pct / price_change_pct))
-            calculated_leverage = max(1, min(calculated_leverage, 125))
-            
-            self.leverage_cache[symbol] = calculated_leverage
-            return calculated_leverage
-        
-        return self.leverage_cache.get(symbol, 1)
-    
     def _get_position_key(self, symbol: str, position_side: str = 'BOTH') -> str:
         return f"{symbol}_{position_side}"
     
@@ -153,8 +131,9 @@ class PositionMonitor:
                     position_amt = processor.safe_float_conversion(pos_data.get('pa', 0), 0, '仓位数量')
                     entry_price = processor.safe_float_conversion(pos_data.get('ep', 0), 0, '开仓价格')
                     unrealized_pnl = processor.safe_float_conversion(pos_data.get('up', 0), 0, '浮动盈亏')
+                    leverage = processor.safe_int_conversion(pos_data.get('l', 1), 1, '杠杆')
                     
-                    logger.debug(f"📦 原始数据 {symbol}: pa={position_amt}, ep={entry_price}, up={unrealized_pnl}")
+                    logger.debug(f"📦 原始数据 {symbol}: pa={position_amt}, ep={entry_price}, up={unrealized_pnl}, l={leverage}")
                     
                     key = self._get_position_key(symbol, position_side)
                     old_position = self.positions.get(key)
@@ -166,8 +145,6 @@ class PositionMonitor:
                         notional = abs(position_amt * mark_price)
                     elif old_position and not old_position.is_empty():
                         mark_price = old_position.mark_price
-                    
-                    leverage = self._calculate_leverage(symbol, position_amt, entry_price, unrealized_pnl)
                     
                     position_data = {
                         'symbol': symbol,
@@ -228,56 +205,45 @@ class PositionMonitor:
                 
                 symbol = validated_order['s']
                 order_status = validated_order['X']
-                order_side = validated_order['S']
-                order_type = validated_order['o']
                 executed_qty = validated_order['z']
-                avg_price = validated_order['ap']
-                cum_quote = validated_order['Z']
-                commission = validated_order['n']
+                realized_pnl = validated_order['rp']
+                position_side = validated_order['ps']
+                close_price = validated_order['ap']
                 
-                logger.debug(f"📦 订单数据 {symbol}: 状态={order_status}, 方向={order_side}, 数量={executed_qty}, 均价={avg_price}")
+                logger.debug(f"📦 订单数据 {symbol}: 状态={order_status}, 数量={executed_qty}, 实际盈亏={realized_pnl}")
                 
-                if order_status in ['FILLED', 'PARTIALLY_FILLED'] and executed_qty > 0:
-                    if order_side == 'SELL' and order_type == 'MARKET':
-                        key = self._get_position_key(symbol, 'BOTH')
-                        old_position = self.positions.get(key)
+                # 当有实际盈亏时，说明是平仓或部分平仓
+                if order_status in ['FILLED', 'PARTIALLY_FILLED'] and realized_pnl != 0 and executed_qty > 0:
+                    key = self._get_position_key(symbol, position_side)
+                    
+                    logger.info(f"💰 [{symbol}] 订单成交: 数量={executed_qty} @ {close_price}, 实际盈亏: {realized_pnl:.4f} USDT")
+                    
+                    if not hasattr(self, 'order_pnl_cache'):
+                        self.order_pnl_cache = {}
+                    
+                    # 聚合部分平仓的盈亏
+                    if key in self.order_pnl_cache:
+                        existing = self.order_pnl_cache[key]
+                        total_quantity = existing['total_quantity'] + executed_qty
+                        total_cost = existing['total_cost'] + (executed_qty * close_price)
+                        total_pnl = existing['total_pnl'] + realized_pnl
+                        avg_close_price = total_cost / total_quantity if total_quantity > 0 else 0
                         
-                        if old_position and not old_position.is_empty():
-                            entry_price = old_position.entry_price
-                            close_price = avg_price
-                            quantity = executed_qty
-                            
-                            actual_pnl = quantity * (close_price - entry_price)
-                            
-                            logger.info(f"💰 [{symbol}] 平仓订单成交: {quantity} @ {close_price}, 实际盈亏: {actual_pnl:.2f} USDT")
-                            
-                            if not hasattr(self, 'order_pnl_cache'):
-                                self.order_pnl_cache = {}
-                            
-                            if key in self.order_pnl_cache:
-                                existing = self.order_pnl_cache[key]
-                                total_quantity = existing['total_quantity'] + quantity
-                                total_cost = existing['total_cost'] + (quantity * close_price)
-                                total_pnl = existing['total_pnl'] + actual_pnl
-                                avg_close_price = total_cost / total_quantity
-                                
-                                self.order_pnl_cache[key] = {
-                                    'actual_pnl': total_pnl,
-                                    'close_price': avg_close_price,
-                                    'quantity': quantity,
-                                    'total_quantity': total_quantity,
-                                    'total_cost': total_cost,
-                                    'entry_price': entry_price
-                                }
-                            else:
-                                self.order_pnl_cache[key] = {
-                                    'actual_pnl': actual_pnl,
-                                    'close_price': close_price,
-                                    'quantity': quantity,
-                                    'total_quantity': quantity,
-                                    'total_cost': quantity * close_price,
-                                    'entry_price': entry_price
-                                }
+                        self.order_pnl_cache[key] = {
+                            'actual_pnl': total_pnl,
+                            'close_price': avg_close_price,
+                            'quantity': executed_qty,
+                            'total_quantity': total_quantity,
+                            'total_cost': total_cost,
+                        }
+                    else:
+                        self.order_pnl_cache[key] = {
+                            'actual_pnl': realized_pnl,
+                            'close_price': close_price,
+                            'quantity': executed_qty,
+                            'total_quantity': executed_qty,
+                            'total_cost': executed_qty * close_price,
+                        }
                                 
             except ValueError as e:
                 logger.error(f"❌ 订单数据验证失败: {e}")

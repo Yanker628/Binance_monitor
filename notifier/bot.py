@@ -26,7 +26,7 @@ class TelegramBot:
             }
             
             if self.topic_id:
-                data['message_thread_id'] = self.topic_id
+                data['message_thread_id'] = str(self.topic_id)
             
             response = requests.post(
                 self.api_url,

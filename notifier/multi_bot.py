@@ -3,7 +3,6 @@ import logging
 from typing import List, Optional
 from .bot import TelegramBot
 
-# 使用主程序的 logger
 logger = logging.getLogger('binance_monitor')
 
 
@@ -71,7 +70,6 @@ class MultiBotManager:
                 logger.error(f"[Bot #{i}] 发送异常: {e}")
                 fail_count += 1
         
-        # 汇总日志
         if success_count > 0:
             logger.info(
                 f"[多Bot] ✅ 消息发送完成: "
