@@ -29,6 +29,14 @@ class BinanceWebSocket:
         # 安全配置
         self.ssl_context = self._create_secure_ssl_context()
         
+        # 连接频率限制
+        self._last_connect_time = 0
+        self._min_connect_interval = 5  # 最小连接间隔5秒
+        
+        # 消息频率限制
+        self._message_times = []
+        self._max_messages_per_minute = 1000  # 每分钟最大消息数
+        
         # 已知但可忽略的事件类型（不需要处理，也不需要警告）
         self.ignored_events: Set[str] = {
             'TRADE_LITE',      # 交易简报（轻量级）
@@ -96,8 +104,40 @@ class BinanceWebSocket:
         logger.info(f"✅ WebSocket URL验证通过: {url}")
         return True
         
+    def _check_message_frequency(self) -> bool:
+        """检查消息频率是否过高"""
+        now = time.time()
+        
+        # 清理1分钟前的记录
+        self._message_times = [t for t in self._message_times if now - t < 60]
+        
+        if len(self._message_times) >= self._max_messages_per_minute:
+            logger.warning(f"⚠️ WebSocket消息频率过高: {len(self._message_times)}/{self._max_messages_per_minute} 每分钟")
+            return False
+        
+        self._message_times.append(now)
+        return True
+    
+    def _validate_message_size(self, message: str) -> bool:
+        """验证消息大小"""
+        max_size = 1024 * 1024  # 1MB限制
+        if len(message) > max_size:
+            logger.warning(f"⚠️ WebSocket消息过大: {len(message)} 字节，限制: {max_size} 字节")
+            return False
+        return True
+    
     def on_message(self, ws, message):
         try:
+            # 检查消息频率
+            if not self._check_message_frequency():
+                logger.warning("⚠️ 消息频率过高，跳过处理")
+                return
+            
+            # 验证消息大小
+            if not self._validate_message_size(message):
+                logger.warning("⚠️ 消息过大，跳过处理")
+                return
+            
             data = json.loads(message)
             
             # 处理 ping/pong
@@ -177,6 +217,15 @@ class BinanceWebSocket:
         """安全连接WebSocket"""
         self._intentional_close = False
         
+        # 检查连接频率
+        now = time.time()
+        if now - self._last_connect_time < self._min_connect_interval:
+            wait_time = self._min_connect_interval - (now - self._last_connect_time)
+            logger.warning(f"⚠️ 连接过于频繁，等待 {wait_time:.1f} 秒后重试")
+            time.sleep(wait_time)
+        
+        self._last_connect_time = time.time()
+        
         # 验证URL安全性
         if not self._validate_websocket_url(self.ws_url):
             raise ConnectionError(f"WebSocket URL验证失败: {self.ws_url}")
@@ -223,8 +272,30 @@ class BinanceWebSocket:
                 logger.error(f"❌ WebSocket运行异常: {e}")
     
     def send(self, data: Dict[str, Any]):
-        if self.ws and self.is_running:
-            self.ws.send(json.dumps(data))
+        """安全发送数据"""
+        if not self.ws or not self.is_running:
+            logger.warning("⚠️ WebSocket未连接，无法发送数据")
+            return False
+        
+        try:
+            # 验证数据大小
+            message = json.dumps(data)
+            if not self._validate_message_size(message):
+                logger.warning("⚠️ 发送数据过大，已拒绝")
+                return False
+            
+            # 检查发送频率
+            if not self._check_message_frequency():
+                logger.warning("⚠️ 发送频率过高，已拒绝")
+                return False
+            
+            self.ws.send(message)
+            logger.debug(f"📤 WebSocket数据发送成功")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ WebSocket发送失败: {e}")
+            return False
     
     def close(self):
         """主动关闭WebSocket连接"""

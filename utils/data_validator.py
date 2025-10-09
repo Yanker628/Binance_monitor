@@ -29,6 +29,18 @@ class DataValidator:
     def validate_symbol(cls, symbol: str) -> bool:
         """验证交易对格式"""
         if not isinstance(symbol, str):
+            logger.warning(f"交易对不是字符串类型: {type(symbol)}")
+            return False
+        
+        # 检查交易对长度
+        if len(symbol) < 6 or len(symbol) > 20:
+            logger.warning(f"交易对长度异常: {symbol} (长度: {len(symbol)})")
+            return False
+        
+        # 检查是否包含危险字符
+        dangerous_chars = ['<', '>', '"', "'", '&', ';', '(', ')', '|', '`', '$']
+        if any(char in symbol for char in dangerous_chars):
+            logger.warning(f"交易对包含危险字符: {symbol}")
             return False
         
         if not cls.SYMBOL_PATTERN.match(symbol):
@@ -61,6 +73,18 @@ class DataValidator:
                 # 处理空字符串
                 if not value.strip():
                     return 0.0 if allow_zero else None
+                
+                # 检查字符串长度，防止过长输入
+                if len(value) > 50:
+                    logger.warning(f"{field_name} 字符串过长: {len(value)} 字符")
+                    return None
+                
+                # 检查是否包含非数字字符（除了小数点、负号、e、E）
+                import re
+                if not re.match(r'^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$', value.strip()):
+                    logger.warning(f"{field_name} 包含非数字字符: {value}")
+                    return None
+                
                 float_val = float(value)
             elif isinstance(value, (int, float)):
                 float_val = float(value)
@@ -71,6 +95,11 @@ class DataValidator:
             # 检查NaN和无穷大
             if not isinstance(float_val, float) or float_val != float_val:
                 logger.warning(f"{field_name} 包含无效数值: {value}")
+                return None
+            
+            # 检查是否为无穷大
+            if abs(float_val) == float('inf'):
+                logger.warning(f"{field_name} 值为无穷大: {value}")
                 return None
             
             # 检查范围
@@ -243,16 +272,56 @@ class SafeDataProcessor:
             # 清理键名
             clean_key = str(key).strip()
             
+            # 检查键名长度
+            if len(clean_key) > 100:
+                logger.warning(f"键名过长，已截断: {clean_key[:50]}...")
+                clean_key = clean_key[:100]
+            
             # 清理值
             if isinstance(value, str):
+                # 检查字符串长度
+                if len(value) > 10000:  # 10KB限制
+                    logger.warning(f"字符串值过长，已截断: {len(value)} 字符")
+                    value = value[:10000]
+                
                 # 移除控制字符，但保留换行符和制表符
                 clean_value = ''.join(char for char in value if ord(char) >= 32 or char in '\n\t')
+                
+                # 移除潜在的SQL注入字符
+                dangerous_patterns = ['--', '/*', '*/', 'xp_', 'sp_', 'exec', 'execute']
+                for pattern in dangerous_patterns:
+                    if pattern.lower() in clean_value.lower():
+                        logger.warning(f"检测到潜在危险模式: {pattern}")
+                        clean_value = clean_value.replace(pattern, '')
             else:
                 clean_value = value
             
             sanitized[clean_key] = clean_value
         
         return sanitized
+    
+    @staticmethod
+    def validate_json_size(data: str, max_size: int = 1024 * 1024) -> bool:
+        """验证JSON数据大小"""
+        if len(data) > max_size:
+            logger.warning(f"JSON数据过大: {len(data)} 字节，限制: {max_size} 字节")
+            return False
+        return True
+    
+    @staticmethod
+    def validate_request_frequency(request_times: list, max_requests: int = 60, window_seconds: int = 60) -> bool:
+        """验证请求频率"""
+        import time
+        now = time.time()
+        
+        # 清理过期记录
+        valid_times = [t for t in request_times if now - t < window_seconds]
+        
+        if len(valid_times) >= max_requests:
+            logger.warning(f"请求频率过高: {len(valid_times)}/{max_requests} 在 {window_seconds} 秒内")
+            return False
+        
+        return True
 
 
 class PositionDataValidator:
