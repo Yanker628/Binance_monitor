@@ -23,6 +23,7 @@ class Position:
         self.notional = processor.safe_float_conversion(data.get('notional', 0), 0, '名义价值')
         self.isolated = bool(data.get('isolated', False))
         self.update_time = datetime.now()
+        self.initial_position: Optional['Position'] = None
     
     def is_empty(self) -> bool:
         return abs(self.position_amt) < 0.0001
@@ -62,6 +63,7 @@ class PositionMonitor:
     def __init__(self):
         self.positions: Dict[str, Position] = {}
         self.leverage_cache: Dict[str, int] = {}
+        self.initial_positions: Dict[str, Position] = {}  # 保存初始仓位信息
         self.on_position_opened: Optional[Callable] = None
         self.on_position_closed: Optional[Callable] = None
         self.on_position_increased: Optional[Callable] = None
@@ -163,6 +165,9 @@ class PositionMonitor:
                     if abs(position_amt) > 0.0001:
                         if old_position is None or old_position.is_empty():
                             self.positions[key] = position
+                            # 保存初始仓位信息
+                            self.initial_positions[key] = position
+                            logger.info(f"💰 [{symbol}] 保存初始仓位: {position_amt:.4f}币 @ {entry_price:.4f}")
                             if self.on_position_opened:
                                 self.on_position_opened(position)
                         else:
@@ -172,22 +177,33 @@ class PositionMonitor:
                             if new_amt > old_amt and self.on_position_increased:
                                 self.on_position_increased(position, old_position)
                             elif new_amt < old_amt and self.on_position_decreased:
-                                self.on_position_decreased(position, old_position)
+                                # 减仓时不显示实际盈亏，因为订单更新事件可能还没有发生
+                                # 实际盈亏会在订单更新事件中处理
+                                logger.info(f"💰 [{symbol}] 减仓事件，等待订单更新事件")
+                                self.on_position_decreased(position, old_position, None)
                             
                             self.positions[key] = position
                     else:
                         if old_position and not old_position.is_empty():
-                            # 检查是否有订单盈亏缓存
+                            order_cache = None
                             if hasattr(self, 'order_pnl_cache') and key in self.order_pnl_cache:
-                                order_cache = self.order_pnl_cache[key]
+                                order_cache = self.order_pnl_cache.pop(key)
                                 logger.info(f"💰 [{symbol}] 平仓时使用订单盈亏缓存: {order_cache['actual_pnl']:.4f} USDT")
-                                
-                                # 将订单盈亏数据传递给回调
-                                if self.on_position_closed:
-                                    self.on_position_closed(old_position, order_cache)
-                            else:
-                                if self.on_position_closed:
-                                    self.on_position_closed(old_position)
+                            
+                            # 平仓时使用最后一次的old_position，但保存初始仓位信息供格式化使用
+                            initial_position = self.initial_positions.get(key)
+                            if initial_position:
+                                logger.info(f"💰 [{symbol}] 平仓时保存初始仓位信息: {initial_position.position_amt:.4f}币 @ {initial_position.entry_price:.4f}")
+                                # 将初始仓位信息附加到old_position上，供格式化函数使用
+                                old_position.initial_position = initial_position
+                            
+                            if self.on_position_closed:
+                                self.on_position_closed(old_position, order_cache)
+                            
+                            # 清理初始仓位缓存
+                            if key in self.initial_positions:
+                                del self.initial_positions[key]
+                        
                         self.positions[key] = position
                         
                 except ValueError as e:
@@ -235,7 +251,7 @@ class PositionMonitor:
                         existing = self.order_pnl_cache[key]
                         total_quantity = existing['total_quantity'] + executed_qty
                         total_cost = existing['total_cost'] + (executed_qty * close_price)
-                        total_pnl = existing['total_pnl'] + realized_pnl
+                        total_pnl = existing['actual_pnl'] + realized_pnl
                         avg_close_price = total_cost / total_quantity if total_quantity > 0 else 0
                         
                         logger.info(f"💰 [{symbol}] 累计订单盈亏: {total_pnl:.4f} USDT (本次: {realized_pnl:.4f})")
@@ -246,6 +262,7 @@ class PositionMonitor:
                             'quantity': executed_qty,
                             'total_quantity': total_quantity,
                             'total_cost': total_cost,
+                            'last_pnl': realized_pnl,  # 记录本次盈亏
                         }
                     else:
                         logger.info(f"💰 [{symbol}] 首次订单盈亏: {realized_pnl:.4f} USDT")
@@ -255,7 +272,20 @@ class PositionMonitor:
                             'quantity': executed_qty,
                             'total_quantity': executed_qty,
                             'total_cost': executed_qty * close_price,
+                            'last_pnl': realized_pnl,  # 记录本次盈亏
                         }
+                    
+                    # 订单更新后，如果有减仓回调，触发减仓推送
+                    if self.on_position_decreased:
+                        current_position = self.positions.get(key)
+                        if current_position and not current_position.is_empty():
+                            # 创建本次减仓的缓存
+                            order_cache = {
+                                'actual_pnl': realized_pnl,
+                                'close_price': close_price
+                            }
+                            logger.info(f"💰 [{symbol}] 订单更新后触发减仓推送: {realized_pnl:.4f} USDT")
+                            self.on_position_decreased(current_position, current_position, order_cache)
                                 
             except ValueError as e:
                 logger.error(f"❌ 订单数据验证失败: {e}")

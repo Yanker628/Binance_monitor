@@ -210,7 +210,7 @@ class BinanceMonitorApp:
             position_data = _create_position_data(new_position, old_position)
             self.aggregator.add_position_change(position_data, 'ADD', old_position)
         
-        def on_decrease(new_position, old_position):
+        def on_decrease(new_position, old_position, order_cache=None):
             decrease_amt = abs(old_position.position_amt) - abs(new_position.position_amt)
             old_notional = abs(old_position.notional)
             new_notional = abs(new_position.notional)
@@ -220,6 +220,9 @@ class BinanceMonitorApp:
                 f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT (-{decrease_value:.2f})"
             )
             position_data = _create_position_data(new_position, old_position)
+            if order_cache:
+                position_data['actual_pnl'] = order_cache.get('actual_pnl')
+                position_data['close_price'] = order_cache.get('close_price')
             self.aggregator.add_position_change(position_data, 'REDUCE', old_position)
         
         monitor.on_position_opened = on_open
