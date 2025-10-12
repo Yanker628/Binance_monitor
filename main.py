@@ -215,10 +215,19 @@ class BinanceMonitorApp:
             old_notional = abs(old_position.notional)
             new_notional = abs(new_position.notional)
             decrease_value = old_notional - new_notional
-            logger.info(
-                f"[{account_name}] ➖ 减仓 {new_position.symbol} -{decrease_amt:.4f}币 "
-                f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT (-{decrease_value:.2f})"
-            )
+            
+            # 如果减仓数量为0，说明这是订单更新事件，不是真正的减仓
+            if decrease_amt > 0:
+                logger.info(
+                    f"[{account_name}] ➖ 减仓 {new_position.symbol} -{decrease_amt:.4f}币 "
+                    f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT (-{decrease_value:.2f})"
+                )
+            else:
+                # 减仓数量为0时，可能是订单更新事件，不显示仓位变化
+                logger.debug(
+                    f"[{account_name}] 📊 订单更新 {new_position.symbol} "
+                    f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT"
+                )
             position_data = _create_position_data(new_position, old_position)
             if order_cache:
                 position_data['actual_pnl'] = order_cache.get('actual_pnl')
