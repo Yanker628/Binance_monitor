@@ -94,7 +94,11 @@ def format_increase_position_message(new_position, old_position) -> str:
 
 
 def format_decrease_position_message(new_position, old_position, order_cache: Optional[Dict] = None) -> str:
-    side_text = "做多" if new_position.get_side() == "LONG" else "做空"
+    # 减仓时使用old_position的方向，因为new_position可能数量为0
+    if old_position:
+        side_text = "做多" if old_position.get_side() == "LONG" else "做空"
+    else:
+        side_text = "做多" if new_position.get_side() == "LONG" else "做空"
     
     old_amt = abs(old_position.position_amt)
     new_amt = abs(new_position.position_amt)
@@ -141,7 +145,11 @@ def format_decrease_position_message(new_position, old_position, order_cache: Op
 
 
 def format_close_position_message(position, old_position=None, order_cache: Optional[Dict] = None) -> str:
-    side_text = "做多" if position.get_side() == "LONG" else "做空"
+    # 平仓时使用old_position的方向，因为position.position_amt为0
+    if old_position:
+        side_text = "做多" if old_position.get_side() == "LONG" else "做空"
+    else:
+        side_text = "做多" if position.get_side() == "LONG" else "做空"
     
     if old_position:
         old_notional = abs(old_position.notional)

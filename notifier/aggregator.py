@@ -263,7 +263,8 @@ class MessageAggregator:
                 'leverage': data.get('leverage', 1),
                 'notional': data.get('notional', 0),
                 'update_time': buffer.get('last_update_time', datetime.now()),
-                'previous_side': data.get('previous_side')
+                'previous_side': data.get('previous_side'),
+                'old_position': buffer.get('old_position')
             }
 
             from utils.formatter import (
@@ -284,11 +285,27 @@ class MessageAggregator:
                     self.notional = float(data['notional'])
                     self.update_time = data['update_time']
                     self.previous_side = data.get('previous_side', None)
+                    self.old_position = data.get('old_position', None)
                 
                 def get_side(self):
-                    if self.previous_side:
-                        return self.previous_side
-                    if self.position_amt > 0:
+                    # 平仓时使用old_position的方向，因为position_amt为0
+                    if actual_change_type == 'CLOSE' and self.old_position:
+                        if self.old_position.position_amt > 0:
+                            return 'LONG'
+                        elif self.old_position.position_amt < 0:
+                            return 'SHORT'
+                        else:
+                            return 'NONE'
+                    # 减仓时也使用old_position的方向，确保准确性
+                    elif actual_change_type == 'REDUCE' and self.old_position:
+                        if self.old_position.position_amt > 0:
+                            return 'LONG'
+                        elif self.old_position.position_amt < 0:
+                            return 'SHORT'
+                        else:
+                            return 'NONE'
+                    # 其他情况根据当前仓位数量判断方向
+                    elif self.position_amt > 0:
                         return 'LONG'
                     elif self.position_amt < 0:
                         return 'SHORT'

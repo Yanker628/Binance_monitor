@@ -230,6 +230,7 @@ class BinanceMonitorApp:
             if order_cache:
                 position_data['actual_pnl'] = order_cache.get('actual_pnl')
                 position_data['close_price'] = order_cache.get('close_price')
+            # 确保传递old_position用于方向判断
             self.aggregator.add_position_change(position_data, 'REDUCE', old_position)
         
         monitor.on_position_opened = on_open
@@ -322,21 +323,19 @@ class BinanceMonitorApp:
             self._start_telegram_bot()
             
             account_text = "、".join(enabled_accounts)
-            # 静默启动，不发送通知
-            logger.info(f"📱 静默启动完成，监听账户: {account_text}")
-            # self.telegram.send_message_sync(
-            #     "🚀 <b>币安合约监控 v2.1.2</b>\n"
-            #     "━━━━━━━━━━━━━━\n\n"
-            #     f"📊 <b>监听账户:</b> {account_text}\n"
-            #     f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
-            #     f"✨ <b>新功能:</b>\n"
-            #     f"• 交易对可直接点击复制\n"
-            #     f"• 显示具体Token名称\n"
-            #     f"• 修复交易对过短报错的问题\n"
-            #     f"• 修复初始仓位显示问题\n"
-            #     f"• 精确显示每次减仓的盈亏\n\n"
-            #     f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
-            # )
+            self.telegram.send_message_sync(
+                "🚀 <b>币安合约监控 v2.1.3</b>\n"
+                "━━━━━━━━━━━━━━\n\n"
+                f"📊 <b>监听账户:</b> {account_text}\n"
+                f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
+                f"✨ <b>新功能:</b>\n"
+                f"• 修复SHORT仓位显示为做多的问题\n"
+                f"• 优化减仓日志显示，避免无意义重复\n"
+                f"• 交易对可直接点击复制\n"
+                f"• 显示具体Token名称\n"
+                f"• 修复交易对过短报错的问题\n\n"
+                f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
+            )
             
             logger.info("✅ 监控已启动")
             
@@ -370,8 +369,7 @@ class BinanceMonitorApp:
                     logger.warning(f"[{account['name']}] ⚠️ 关闭listenKey时出现异常: {e}")
         try:
             if self.restart_requested:
-                # 静默重启，不发送通知
-                logger.info("🔄 币安合约监控正在静默重启...")
+                self.telegram.send_message_sync("🔄 <b>币安合约监控正在重启...</b>")
             else:
                 self.telegram.send_message_sync("⛔ <b>币安合约监控已停止</b>")
         except Exception as e:
