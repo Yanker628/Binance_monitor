@@ -51,13 +51,23 @@ source .venv/bin/activate
 项目使用 `uv` 作为包管理器以获得更快的安装速度，您也可以使用 `pip`。
 ```bash
 # 使用 uv (推荐)
-uv pip install -r requirements.txt
+.venv/bin/uv pip install -r requirements.txt
 
 # 或者使用 pip
-pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt
 ```
 
-### 4. 配置环境变量
+### 4. 安装 Supervisor (可选，用于生产环境)
+如果计划在生产环境中长期运行，建议安装 Supervisor 进行进程管理。
+```bash
+# Ubuntu/Debian 系统
+sudo apt update && sudo apt install -y supervisor
+
+# CentOS/RHEL 系统
+sudo yum install -y supervisor
+```
+
+### 5. 配置环境变量
 复制示例文件并根据您的实际情况修改。
 ```bash
 cp .env.example .env
@@ -81,6 +91,11 @@ cp .env.example .env
 ### 开发模式 (手动运行)
 直接运行主程序，用于调试和快速测试。按 `Ctrl+C` 停止。
 ```bash
+# 使用虚拟环境中的 Python
+.venv/bin/python main.py
+
+# 或者激活虚拟环境后运行
+source .venv/bin/activate
 python main.py
 ```
 
@@ -110,6 +125,45 @@ supervisorctl restart binance_monitor
 
 # 查看实时日志
 supervisorctl tail -f binance_monitor stdout
+
+# 停止 Supervisor 管理的程序
+supervisorctl stop binance_monitor
+
+# 停止 Supervisor 本身
+supervisorctl shutdown
+```
+
+## 停止程序
+
+### 方法1：如果程序在终端前台运行
+如果你看到程序在终端中输出日志，直接按：
+```bash
+Ctrl + C
+```
+
+### 方法2：停止所有相关进程（推荐）
+```bash
+# 停止所有 python main.py 进程
+pkill -f "python main.py"
+
+# 停止所有 supervisor 进程
+pkill -f supervisord
+```
+
+### 方法3：强制停止（如果普通停止无效）
+```bash
+# 强制停止所有相关进程
+pkill -9 -f "python main.py"
+pkill -9 -f supervisord
+```
+
+### 方法4：如果使用 Supervisor 管理
+```bash
+# 停止 supervisor 管理的程序
+supervisorctl stop binance_monitor
+
+# 停止 supervisor 本身
+supervisorctl shutdown
 ```
 
 ## 高级功能
@@ -125,6 +179,22 @@ pgrep -f "python main.py"
 kill -SIGUSR1 <PID>
 ```
 程序会执行优雅停机，然后通过 `os.execv` 重新加载并启动。在 `supervisor` 模式下，请使用 `supervisorctl restart` 命令。
+
+## 更新日志
+
+### v1.1.0 (2025-10-12)
+- **修复交易对验证问题**: 更新了交易对验证逻辑，现在支持数字前缀的交易对（如 `4USDT`）
+- **改进正则表达式**: 从 `^[A-Z]{2,10}USDT$` 更新为 `^[A-Z0-9]{1,10}USDT$`
+- **调整长度验证**: 最小长度从6个字符调整为5个字符
+- **完善安装文档**: 添加了 Supervisor 安装说明和详细的停止程序方法
+- **优化用户体验**: 改进了虚拟环境使用说明和命令示例
+
+### v1.0.0
+- 初始版本发布
+- 支持币安合约账户和统一账户监控
+- Telegram 通知功能
+- 消息聚合机制
+- Supervisor 进程管理支持
 
 ## 📝 许可证
 

@@ -10,7 +10,7 @@ logger = logging.getLogger('binance_monitor')
 class DataValidator:
     """数据验证器"""
     
-    SYMBOL_PATTERN = re.compile(r'^[A-Z]{2,10}USDT$')
+    SYMBOL_PATTERN = re.compile(r'^[A-Z0-9]{1,10}USDT$')
     POSITION_SIDES = {'LONG', 'SHORT', 'BOTH'}
     ORDER_STATUSES = {'NEW', 'PARTIALLY_FILLED', 'FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'}
     ORDER_TYPES = {'LIMIT', 'MARKET', 'STOP', 'STOP_MARKET', 'TAKE_PROFIT', 'TAKE_PROFIT_MARKET'}
@@ -22,7 +22,7 @@ class DataValidator:
             logger.warning(f"交易对不是字符串类型: {type(symbol)}")
             return False
         
-        if len(symbol) < 6 or len(symbol) > 20:
+        if len(symbol) < 5 or len(symbol) > 20:
             logger.warning(f"交易对长度异常: {symbol} (长度: {len(symbol)})")
             return False
         
