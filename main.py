@@ -216,14 +216,12 @@ class BinanceMonitorApp:
             new_notional = abs(new_position.notional)
             decrease_value = old_notional - new_notional
             
-            # 如果减仓数量为0，说明这是订单更新事件，不是真正的减仓
             if decrease_amt > 0:
                 logger.info(
                     f"[{account_name}] ➖ 减仓 {new_position.symbol} -{decrease_amt:.4f}币 "
                     f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT (-{decrease_value:.2f})"
                 )
             else:
-                # 减仓数量为0时，可能是订单更新事件，不显示仓位变化
                 logger.debug(
                     f"[{account_name}] 📊 订单更新 {new_position.symbol} "
                     f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT"
@@ -324,19 +322,21 @@ class BinanceMonitorApp:
             self._start_telegram_bot()
             
             account_text = "、".join(enabled_accounts)
-            self.telegram.send_message_sync(
-                "🚀 <b>币安合约监控 v2.1.1</b>\n"
-                "━━━━━━━━━━━━━━\n\n"
-                f"📊 <b>监听账户:</b> {account_text}\n"
-                f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
-                f"✨ <b>新功能:</b>\n"
-                f"• 交易对可直接点击复制\n"
-                f"• 显示具体Token名称\n"
-                f"• 修复交易对过短报错的问题\n"
-                f"• 修复初始仓位显示问题\n"
-                f"• 精确显示每次减仓的盈亏\n\n"
-                f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
-            )
+            # 静默启动，不发送通知
+            logger.info(f"📱 静默启动完成，监听账户: {account_text}")
+            # self.telegram.send_message_sync(
+            #     "🚀 <b>币安合约监控 v2.1.2</b>\n"
+            #     "━━━━━━━━━━━━━━\n\n"
+            #     f"📊 <b>监听账户:</b> {account_text}\n"
+            #     f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
+            #     f"✨ <b>新功能:</b>\n"
+            #     f"• 交易对可直接点击复制\n"
+            #     f"• 显示具体Token名称\n"
+            #     f"• 修复交易对过短报错的问题\n"
+            #     f"• 修复初始仓位显示问题\n"
+            #     f"• 精确显示每次减仓的盈亏\n\n"
+            #     f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
+            # )
             
             logger.info("✅ 监控已启动")
             
@@ -370,7 +370,8 @@ class BinanceMonitorApp:
                     logger.warning(f"[{account['name']}] ⚠️ 关闭listenKey时出现异常: {e}")
         try:
             if self.restart_requested:
-                self.telegram.send_message_sync("🔄 <b>币安合约监控正在重启...</b>")
+                # 静默重启，不发送通知
+                logger.info("🔄 币安合约监控正在静默重启...")
             else:
                 self.telegram.send_message_sync("⛔ <b>币安合约监控已停止</b>")
         except Exception as e:
