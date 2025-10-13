@@ -205,6 +205,9 @@ class PositionMonitor:
                             # 清理初始仓位缓存
                             if key in self.initial_positions:
                                 del self.initial_positions[key]
+                            
+                            # 平仓时不触发减仓回调，避免重复推送
+                            logger.info(f"💰 [{symbol}] 平仓事件已处理，跳过减仓回调")
                         
                         self.positions[key] = position
                         
