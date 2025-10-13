@@ -143,10 +143,12 @@ class PositionMonitor:
                     mark_price = 0
                     notional = 0
                     if abs(position_amt) > 0.0001 and entry_price > 0:
-                        mark_price = unrealized_pnl / position_amt + entry_price
+                        # 正确的mark_price计算：mark_price = entry_price + (unrealized_pnl / position_amt)
+                        mark_price = entry_price + (unrealized_pnl / position_amt)
                         notional = abs(position_amt * mark_price)
                     elif old_position and not old_position.is_empty():
                         mark_price = old_position.mark_price
+                        notional = old_position.notional
                     
                     position_data = {
                         'symbol': symbol,

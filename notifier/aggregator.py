@@ -320,17 +320,23 @@ class MessageAggregator:
                 old_pos = buffer.get('old_position')
                 message = format_close_position_message(position, old_pos, order_cache)
             elif actual_change_type == 'ADD':
+                # 计算old_position的notional值
+                old_notional = abs(float(first_prev_amount) * float(first_prev_entry)) if abs(float(first_prev_amount)) > 0.0001 else 0
                 old_pos = TempPosition({
                     **aggregated_data,
                     'position_amt': float(first_prev_amount),
-                    'entry_price': float(first_prev_entry)
+                    'entry_price': float(first_prev_entry),
+                    'notional': old_notional
                 })
                 message = format_increase_position_message(position, old_pos)
             elif actual_change_type == 'REDUCE':
+                # 计算old_position的notional值
+                old_notional = abs(float(first_prev_amount) * float(first_prev_entry)) if abs(float(first_prev_amount)) > 0.0001 else 0
                 old_pos = TempPosition({
                     **aggregated_data,
                     'position_amt': float(first_prev_amount),
-                    'entry_price': float(first_prev_entry)
+                    'entry_price': float(first_prev_entry),
+                    'notional': old_notional
                 })
                 message = format_decrease_position_message(position, old_pos, order_cache)
             else:

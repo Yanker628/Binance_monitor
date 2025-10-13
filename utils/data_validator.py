@@ -302,8 +302,9 @@ class PositionDataValidator:
         if position_amt is None:
             raise ValueError("无效的仓位数量")
         
-        position_amt = abs(position_amt) if position_amt is not None else 0
-        if position_amt > 0.0001:
+        # 保留仓位数量的正负号，因为正负号表示做多/做空方向
+        # position_amt = abs(position_amt) if position_amt is not None else 0
+        if abs(position_amt) > 0.0001:
             entry_price = validator.validate_price(data.get('entryPrice', 0), '开仓价格')
             if entry_price is None:
                 raise ValueError("无效的开仓价格")

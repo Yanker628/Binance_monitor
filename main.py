@@ -203,8 +203,11 @@ class BinanceMonitorApp:
             old_notional = abs(old_position.notional)
             new_notional = abs(new_position.notional)
             increase_value = new_notional - old_notional
+            
+            # 添加时间戳确保日志顺序
+            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
             logger.info(
-                f"[{account_name}] ➕ 加仓 {new_position.symbol} +{increase_amt:.4f}币 @ {new_position.entry_price:.4f} "
+                f"[{timestamp}] [{account_name}] ➕ 加仓 {new_position.symbol} +{increase_amt:.4f}币 @ {new_position.entry_price:.4f} "
                 f"仓位: {old_notional:.2f} → {new_notional:.2f} USDT (+{increase_value:.2f})"
             )
             position_data = _create_position_data(new_position, old_position)
