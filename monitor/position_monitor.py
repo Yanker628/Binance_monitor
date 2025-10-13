@@ -280,17 +280,23 @@ class PositionMonitor:
                             'last_pnl': realized_pnl,  # 记录本次盈亏
                         }
                     
-                    # 订单更新后，如果有减仓回调，触发减仓推送
+                    # 订单更新后，检查是否需要触发减仓推送
+                    # 只有在非平仓情况下才触发减仓回调，避免与平仓回调重复
                     if self.on_position_decreased:
                         current_position = self.positions.get(key)
                         if current_position and not current_position.is_empty():
-                            # 创建本次减仓的缓存
-                            order_cache = {
-                                'actual_pnl': realized_pnl,
-                                'close_price': close_price
-                            }
-                            logger.info(f"💰 [{symbol}] 订单更新后触发减仓推送: {realized_pnl:.4f} USDT")
-                            self.on_position_decreased(current_position, current_position, order_cache)
+                            # 检查是否是平仓操作（仓位数量为0）
+                            if abs(current_position.position_amt) > 0.0001:
+                                # 非平仓情况，触发减仓推送
+                                order_cache = {
+                                    'actual_pnl': realized_pnl,
+                                    'close_price': close_price
+                                }
+                                logger.info(f"💰 [{symbol}] 订单更新后触发减仓推送: {realized_pnl:.4f} USDT")
+                                self.on_position_decreased(current_position, current_position, order_cache)
+                            else:
+                                # 平仓情况，不触发减仓回调，避免重复推送
+                                logger.info(f"💰 [{symbol}] 平仓订单更新，跳过减仓回调避免重复推送")
                                 
             except ValueError as e:
                 logger.error(f"❌ 订单数据验证失败: {e}")
