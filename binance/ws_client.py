@@ -36,6 +36,7 @@ class BinanceWebSocket:
         self.ignored_events: Set[str] = {
             'TRADE_LITE',
             'listenKeyExpired',
+            'ACCOUNT_CONFIG_UPDATE',  # 账户配置更新事件
         }
         
         self._warned_events: Set[str] = set()
