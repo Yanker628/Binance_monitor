@@ -179,10 +179,10 @@ class PositionMonitor:
                             if new_amt > old_amt and self.on_position_increased:
                                 self.on_position_increased(position, old_position)
                             elif new_amt < old_amt and self.on_position_decreased:
-                                # 减仓时不显示实际盈亏，因为订单更新事件可能还没有发生
-                                # 实际盈亏会在订单更新事件中处理
-                                logger.info(f"💰 [{symbol}] 减仓事件，等待订单更新事件")
-                                self.on_position_decreased(position, old_position, None)
+                                # 减仓时不立即触发回调，等待订单更新事件
+                                # 订单更新事件会包含实际盈亏信息，在那里触发回调
+                                logger.info(f"💰 [{symbol}] 减仓事件，等待订单更新事件处理")
+                                # 不调用 self.on_position_decreased，避免重复推送
                             
                             self.positions[key] = position
                     else:

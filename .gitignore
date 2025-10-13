@@ -67,3 +67,12 @@ settings_local.py
 dist/
 build/
 *.egg-info/
+
+# 文档文件（避免重复提交）
+ARCHITECTURE_ANALYSIS.md
+FLOWCHARTS.md
+TROUBLESHOOTING_GUIDE.md
+README_DOCS.md
+
+# 监控脚本（可选，如果不想提交）
+scripts/monitor_system.sh
