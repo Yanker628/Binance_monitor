@@ -325,20 +325,22 @@ class BinanceMonitorApp:
             self._start_user_data_streams()
             self._start_telegram_bot()
             
-            account_text = "、".join(enabled_accounts)
-            self.telegram.send_message_sync(
-                "🚀 <b>币安合约监控 v2.1.3</b>\n"
-                "━━━━━━━━━━━━━━\n\n"
-                f"📊 <b>监听账户:</b> {account_text}\n"
-                f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
-                f"✨ <b>新功能:</b>\n"
-                f"• 修复SHORT仓位显示为做多的问题\n"
-                f"• 优化减仓日志显示，避免无意义重复\n"
-                f"• 交易对可直接点击复制\n"
-                f"• 显示具体Token名称\n"
-                f"• 修复交易对过短报错的问题\n\n"
-                f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
-            )
+            # 只在正常启动时发送公告，重启时不发送
+            if not self.restart_requested:
+                account_text = "、".join(enabled_accounts)
+                self.telegram.send_message_sync(
+                    "🚀 <b>币安合约监控 v2.1.4</b>\n"
+                    "━━━━━━━━━━━━━━\n\n"
+                    f"📊 <b>监听账户:</b> {account_text}\n"
+                    f"🔔 <b>推送内容:</b> 开仓/加仓/减仓/平仓通知\n\n"
+                    f"✨ <b>新功能:</b>\n"
+                    f"• 修复SHORT仓位显示为做多的问题\n"
+                    f"• 优化减仓日志显示，避免无意义重复\n"
+                    f"• 交易对可直接点击复制\n"
+                    f"• 显示具体Token名称\n"
+                    f"• 修复交易对过短报错的问题\n\n"
+                    f"⏰ <b>{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</b>"
+                )
             
             logger.info("✅ 监控已启动")
             
@@ -372,11 +374,11 @@ class BinanceMonitorApp:
                     logger.warning(f"[{account['name']}] ⚠️ 关闭listenKey时出现异常: {e}")
         try:
             if self.restart_requested:
-                self.telegram.send_message_sync("🔄 <b>币安合约监控正在重启...</b>")
+                logger.info("🔄 币安合约监控正在重启...")
             else:
-                self.telegram.send_message_sync("⛔ <b>币安合约监控已停止</b>")
+                logger.info("⛔ 币安合约监控已停止")
         except Exception as e:
-            logger.error(f"发送停止通知失败: {e}")
+            logger.error(f"记录停止状态失败: {e}")
         
         if self.restart_requested:
             # 检查是否由 supervisor 管理
